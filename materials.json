@@ -1,34 +1,65 @@
 {
-  "concrete": {
-    "name": "Concrete",
-    "k": 1.7,
+  "sandy_dry": {
+    "name": "Sandy soil (dry)",
+    "k": 0.30,
+    "rho": 1600,
+    "cp": 800,
+    "albedo": 0.17,
+    "emissivity": 0.95,
+    "evaporation": false
+  },
+  "sandy_saturated": {
+    "name": "Sandy soil (saturated)",
+    "k": 2.20,
+    "rho": 2000,
+    "cp": 1480,
+    "albedo": 0.17,
+    "emissivity": 0.96,
+    "evaporation": true
+  },
+  "water": {
+    "name": "Water",
+    "k": 0.57,
+    "rho": 1000,
+    "cp": 4180,
+    "albedo": 0.06,
+    "emissivity": 0.98,
+    "evaporation": true
+  },
+  "asphalt": {
+    "name": "Asphalt road",
+    "k": 0.75,
     "rho": 2300,
-    "cp": 880,
-    "albedo": 0.2,
-    "emissivity": 0.92
+    "cp": 840,
+    "albedo": 0.12,
+    "emissivity": 0.95,
+    "evaporation": false
   },
-  "steel": {
-    "name": "Steel",
-    "k": 45.0,
-    "rho": 7850,
-    "cp": 500,
-    "albedo": 0.25,
-    "emissivity": 0.6
+  "concrete": {
+    "name": "Concrete (medium dense)",
+    "k": 1.0,
+    "rho": 1600,
+    "cp": 920,
+    "albedo": 0.20,
+    "emissivity": 0.92,
+    "evaporation": false
   },
-  "green": {
+  "green_roof": {
     "name": "Green roof",
     "k": 0.5,
     "rho": 1200,
     "cp": 1200,
     "albedo": 0.20,
-    "emissivity": 0.95
+    "emissivity": 0.95,
+    "evaporation": true
   },
-  "cool": {
+  "cool_roof": {
     "name": "Cool roof",
     "k": 1.0,
     "rho": 1600,
     "cp": 900,
     "albedo": 0.65,
-    "emissivity": 0.88
+    "emissivity": 0.88,
+    "evaporation": true
   }
 }
