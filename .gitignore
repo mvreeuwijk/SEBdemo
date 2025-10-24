@@ -4,3 +4,4 @@
 /app_local.py
 /attic
 /__pycache__
+/tools/*

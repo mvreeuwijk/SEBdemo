@@ -4,8 +4,8 @@ This file implements three requested features:
  - Compare default disabled; Material B controls are greyed when compare is off.
  - Animation tab that shows a single panel when compare is off, and two panels when on.
  - A small scaffold to detect `customtkinter` and optionally switch to a
-   CustomTkinter-based UI (we keep tkinter as the primary implementation
-   here so the app runs in the provided venv without extra installs).
+     CustomTkinter-based UI (we keep tkinter as the primary implementation
+     here so the app runs in the provided venv without extra installs).
 
 The implementation is deliberately incremental and testable. After this
 change `import app` should succeed and the UI will support compare/animation.
@@ -74,7 +74,7 @@ class App(ctk.CTk):
         # default size and place the window near the top of the screen so the
         # whole window is visible on most displays. Prefer centering horizontally
         # and a small top margin.
-        width, height = 800, 560
+        width, height = 1000, 560
         try:
             # ensure geometry info is up to date
             self.update_idletasks()
@@ -118,10 +118,7 @@ class App(ctk.CTk):
             self._poll_after_id = None
 
         # ensure we clean up scheduled callbacks when the window is closed
-        try:
-            self.protocol('WM_DELETE_WINDOW', self._on_closing)
-        except Exception:
-            pass
+        self.protocol('WM_DELETE_WINDOW', self._on_closing)
 
     # --- builders for each tab to keep __init__ concise ---
     def _build_inputs_tab(self):
@@ -130,40 +127,46 @@ class App(ctk.CTk):
         frm = ctk.CTkFrame(self.tab_inputs)
         frm.pack(fill='both', expand=True, padx=8, pady=8)
         # tune grid column weights so the optionmenus and entries fit the window
-        try:
-            frm.grid_columnconfigure(0, weight=1, minsize=120, uniform='param')
-            frm.grid_columnconfigure(1, weight=1, minsize=120, uniform='param')
-            frm.grid_columnconfigure(2, weight=1, minsize=120, uniform='param')
-        except Exception:
-            pass
+        frm.grid_columnconfigure(0, weight=1, minsize=120, uniform='param')
+        frm.grid_columnconfigure(1, weight=1, minsize=120, uniform='param')
+        frm.grid_columnconfigure(2, weight=1, minsize=120, uniform='param')
 
         # capture the inputs frame background color (used to color Matplotlib figs)
         try:
             self._input_frame_bg = frm.cget('fg_color')
         except Exception:
-            try:
-                self._input_frame_bg = frm.cget('bg')
-            except Exception:
-                self._input_frame_bg = None
-
+            self._input_frame_bg = frm.cget('bg')
+ 
         # Top row: Material selectors and compare checkbox above Material B
         frameA = ctk.CTkFrame(frm, fg_color='transparent')
         frameA.grid(row=1, column=0, sticky='nsew', padx=6, pady=(6, 2))
-        try:
-            frameA.grid_columnconfigure(0, weight=0)
-            frameA.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
+        frameA.grid_columnconfigure(0, weight=0)
+        frameA.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(frameA, text='Material A:').grid(row=0, column=0, sticky='w')
         self.matA = ctk.StringVar(value=keys[0] if keys else 'concrete')
         self.opt_matA = ctk.CTkOptionMenu(frameA, values=keys, variable=self.matA, width=150)
         self.opt_matA.grid(row=0, column=1, sticky='e', padx=(6, 0))
         # tooltip support for material A: show properties on hover
+        self._tooltip_after_id = None
+        self._tooltip_win = None
+        self.opt_matA.bind('<Enter>', lambda e, w=self.opt_matA: self._schedule_show_material_tooltip(w, self.matA))
+        self.opt_matA.bind('<Leave>', lambda e: self._hide_material_tooltip())
+        # Some CTkOptionMenu implementations contain child widgets that receive
+        # enter/leave events instead of the container. Attach the same handlers
+        # to known children shortly after creation so tooltips reliably hide.
+        def _attach_children_for_optmenu(w, v):
+            try:
+                for ch in w.winfo_children():
+                    try:
+                        ch.bind('<Enter>', lambda e, ww=w, vv=v: self._schedule_show_material_tooltip(ww, vv))
+                        ch.bind('<Leave>', lambda e: self._hide_material_tooltip())
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         try:
-            self._tooltip_after_id = None
-            self._tooltip_win = None
-            self.opt_matA.bind('<Enter>', lambda e, w=self.opt_matA: self._schedule_show_material_tooltip(w, self.matA))
-            self.opt_matA.bind('<Leave>', lambda e: self._hide_material_tooltip())
+            self.after(50, lambda w=self.opt_matA, v=self.matA: _attach_children_for_optmenu(w, v))
         except Exception:
             pass
         ctk.CTkLabel(frameA, text='Thickness A (m):').grid(row=1, column=0, sticky='w', pady=(6, 0))
@@ -177,35 +180,30 @@ class App(ctk.CTk):
         # place the compare control inside the third column (column=2).
         # The label will be left-aligned and the checkbox right-aligned within this column.
         cmp_frame.grid(row=0, column=2, sticky='nsew', padx=(6, 0), pady=(6, 0))
-        try:
             # give the right-hand column weight so the checkbox can expand
-            # and be flush with the right edge of the window
-            cmp_frame.grid_columnconfigure(0, weight=1)
-            cmp_frame.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
-        ctk.CTkLabel(cmp_frame, text='Compare with second material:').grid(row=0, column=0, sticky='w')
-        self.cb_compare = ctk.CTkCheckBox(cmp_frame, text='', variable=self.compare_var, command=self.toggle_compare)
-    # remove left padding and allow the checkbox column to expand so the
-    # control sits flush with the right edge of the window
-        self.cb_compare.grid(row=0, column=1, sticky='e', padx=(0, 0))
+        # and be flush with the right edge of the window
+        cmp_frame.grid_columnconfigure(0, weight=1)
+        cmp_frame.grid_columnconfigure(1, weight=1)
+        # show checkbox on the left and description on the right
+        # command toggles Material B controls immediately
+        self.cb_compare = ctk.CTkCheckBox(cmp_frame, text='', variable=self.compare_var, command=self._on_compare_toggle)
+        self.cb_compare.grid(row=0, column=0, sticky='w', padx=(0, 6))
+        ctk.CTkLabel(cmp_frame, text='Compare with second material:').grid(row=0, column=1, sticky='w')
 
         # Frame for Material B (aligned with A)
         frameB = ctk.CTkFrame(frm, fg_color='transparent')
         frameB.grid(row=1, column=2, sticky='nsew', padx=6, pady=(6, 2))
-        try:
-            frameB.grid_columnconfigure(0, weight=0)
-            frameB.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
+        frameB.grid_columnconfigure(0, weight=0)
+        frameB.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(frameB, text='Material B:').grid(row=0, column=0, sticky='w')
         self.matB = ctk.StringVar(value=keys[0] if len(keys) > 1 else keys[0])
         self.opt_matB = ctk.CTkOptionMenu(frameB, values=keys, variable=self.matB, width=150)
         self.opt_matB.grid(row=0, column=1, sticky='e', padx=(6, 0))
         # tooltip support for material B
+        self.opt_matB.bind('<Enter>', lambda e, w=self.opt_matB: self._schedule_show_material_tooltip(w, self.matB))
+        self.opt_matB.bind('<Leave>', lambda e: self._hide_material_tooltip())
         try:
-            self.opt_matB.bind('<Enter>', lambda e, w=self.opt_matB: self._schedule_show_material_tooltip(w, self.matB))
-            self.opt_matB.bind('<Leave>', lambda e: self._hide_material_tooltip())
+            self.after(50, lambda w=self.opt_matB, v=self.matB: _attach_children_for_optmenu(w, v))
         except Exception:
             pass
         self.lbl_thickB = ctk.CTkLabel(frameB, text='Thickness B (m):')
@@ -218,6 +216,11 @@ class App(ctk.CTk):
         self.thickB = ctk.DoubleVar(value=self.DEFAULTS['thickB'])
         self.entry_thickB = ctk.CTkEntry(frameB, textvariable=self.thickB, width=120, justify='right')
         self.entry_thickB.grid(row=1, column=1, sticky='e', padx=(6, 0), pady=(6, 0))
+        # remember entry default text color so we can restore it reliably
+        try:
+            self._entry_thickB_text_color_default = self.entry_thickB.cget('text_color')
+        except Exception:
+            self._entry_thickB_text_color_default = None
 
         sep = ctk.CTkFrame(frm, height=2, fg_color='#7f7f7f')
         sep.grid(row=2, column=0, columnspan=3, sticky='ew', pady=(6, 8))
@@ -246,165 +249,171 @@ class App(ctk.CTk):
         self.param_col1.grid(row=3, column=1, sticky='nsew', padx=6, pady=4)
         self.param_col2 = ctk.CTkFrame(frm)
         self.param_col2.grid(row=3, column=2, sticky='nsew', padx=6, pady=4)
-        try:
-            self.param_col0.grid_columnconfigure(0, weight=1)
-            self.param_col0.grid_columnconfigure(1, weight=1)
-            self.param_col1.grid_columnconfigure(0, weight=1)
-            self.param_col1.grid_columnconfigure(1, weight=1)
-            self.param_col2.grid_columnconfigure(0, weight=1)
-            self.param_col2.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
+        self.param_col0.grid_columnconfigure(0, weight=1)
+        self.param_col0.grid_columnconfigure(1, weight=1)
+        self.param_col1.grid_columnconfigure(0, weight=1)
+        self.param_col1.grid_columnconfigure(1, weight=1)
+        self.param_col2.grid_columnconfigure(0, weight=1)
+        self.param_col2.grid_columnconfigure(1, weight=1)
 
-        try:
-            frm.grid_rowconfigure(6, weight=1)
-            frm.grid_rowconfigure(7, weight=1)
-        except Exception:
-            pass
+        frm.grid_rowconfigure(6, weight=1)
+        frm.grid_rowconfigure(7, weight=1)
 
         # Column 0
-        ctk.CTkLabel(self.param_col0, text='Peak shortwave Sb (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col0, text='Peak shortwave (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.Sb = ctk.DoubleVar(value=self.DEFAULTS['Sb'])
         self.entry_Sb = ctk.CTkEntry(self.param_col0, textvariable=self.Sb, width=80, justify='right')
         self.entry_Sb.grid(row=0, column=1, sticky='e', pady=(0,4))
 
-        ctk.CTkLabel(self.param_col0, text='Sunrise trise (h):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col0, text='Sunrise time (h):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.trise_hr = ctk.DoubleVar(value=self.DEFAULTS['trise_hr'])
         self.entry_trise = ctk.CTkEntry(self.param_col0, textvariable=self.trise_hr, width=80, justify='right')
         self.entry_trise.grid(row=1, column=1, sticky='e', pady=(0,4))
 
-        ctk.CTkLabel(self.param_col0, text='Sunset tset (h):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col0, text='Sunset time (h):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.tset_hr = ctk.DoubleVar(value=self.DEFAULTS['tset_hr'])
         self.entry_tset = ctk.CTkEntry(self.param_col0, textvariable=self.tset_hr, width=80, justify='right')
         self.entry_tset.grid(row=2, column=1, sticky='e', pady=(0,4))
 
         # Column 1
-        ctk.CTkLabel(self.param_col1, text='Incoming Ldown (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col1, text='Incoming longwave (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.Ldown = ctk.DoubleVar(value=self.DEFAULTS['Ldown'])
         self.entry_Ldown = ctk.CTkEntry(self.param_col1, textvariable=self.Ldown, width=80, justify='right')
         self.entry_Ldown.grid(row=0, column=1, sticky='e', pady=(0,4))
 
-        ctk.CTkLabel(self.param_col1, text='Heat transfer h (W/m2K):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col1, text='Heat transfer coeff (W/m2K):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.hcoef = ctk.DoubleVar(value=self.DEFAULTS['hcoef'])
         self.entry_hcoef = ctk.CTkEntry(self.param_col1, textvariable=self.hcoef, width=80, justify='right')
         self.entry_hcoef.grid(row=1, column=1, sticky='e', pady=(0,4))
 
-        ctk.CTkLabel(self.param_col1, text='Air mean temp (°C):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.Ta_mean_C = ctk.DoubleVar(value=self.DEFAULTS['Ta_mean_C'])
-        self.entry_Ta_mean = ctk.CTkEntry(self.param_col1, textvariable=self.Ta_mean_C, width=80, justify='right')
-        self.entry_Ta_mean.grid(row=2, column=1, sticky='e', pady=(0,4))
+        # Bowen ratio moved here (swapped with Air mean temp)
+        ctk.CTkLabel(self.param_col1, text='Bowen ratio (-):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        self.beta_var = ctk.DoubleVar(value=self.DEFAULTS['beta'])
+        self.entry_beta = ctk.CTkEntry(self.param_col1, textvariable=self.beta_var, width=80, justify='right')
+        self.entry_beta.grid(row=2, column=1, sticky='e', pady=(0,4))
 
         # Column 2
-        ctk.CTkLabel(self.param_col2, text='Air amp (°C):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        ctk.CTkLabel(self.param_col2, text='Air temperature amp (°C):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
         self.Ta_amp_C = ctk.DoubleVar(value=self.DEFAULTS['Ta_amp_C'])
         self.entry_Ta_amp = ctk.CTkEntry(self.param_col2, textvariable=self.Ta_amp_C, width=80, justify='right')
         self.entry_Ta_amp.grid(row=0, column=1, sticky='e', pady=(0,4))
 
-        ctk.CTkLabel(self.param_col2, text='Bowen beta (optional):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.beta_var = ctk.DoubleVar(value=self.DEFAULTS['beta'])
-        self.entry_beta = ctk.CTkEntry(self.param_col2, textvariable=self.beta_var, width=80, justify='right')
-        self.entry_beta.grid(row=1, column=1, sticky='e', pady=(0,4))
+        # Air mean temperature moved here (swapped with Bowen ratio)
+        ctk.CTkLabel(self.param_col2, text='Air mean temp (°C):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
+        self.Ta_mean_C = ctk.DoubleVar(value=self.DEFAULTS['Ta_mean_C'])
+        self.entry_Ta_mean = ctk.CTkEntry(self.param_col2, textvariable=self.Ta_mean_C, width=80, justify='right')
+        self.entry_Ta_mean.grid(row=1, column=1, sticky='e', pady=(0,4))
 
         # Preview figures
         self.fig_Ta = Figure(figsize=(8, 2))
         self.canvas_Ta = FigureCanvasTkAgg(self.fig_Ta, master=frm)
         self.canvas_Ta.get_tk_widget().grid(row=6, column=0, columnspan=3, padx=8, pady=(8, 4), sticky='nsew')
         self.ax_Ta = self.fig_Ta.subplots(1, 1)
-        try:
-            if getattr(self, '_input_frame_bg', None):
-                mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-                if mcol is not None:
-                    try:
-                        self.fig_Ta.patch.set_facecolor(mcol)
-                        for a in self.fig_Ta.axes:
-                            a.set_facecolor(mcol)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                self.fig_Ta.patch.set_facecolor(mcol)
+                for a in self.fig_Ta.axes:
+                    a.set_facecolor(mcol)
 
         self.fig_K = Figure(figsize=(8, 2))
         self.canvas_K = FigureCanvasTkAgg(self.fig_K, master=frm)
         self.canvas_K.get_tk_widget().grid(row=7, column=0, columnspan=3, padx=8, pady=(4, 8), sticky='nsew')
         self.ax_K = self.fig_K.subplots(1, 1)
-        try:
-            if getattr(self, '_input_frame_bg', None):
-                mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-                if mcol is not None:
-                    try:
-                        self.fig_K.patch.set_facecolor(mcol)
-                        for a in self.fig_K.axes:
-                            a.set_facecolor(mcol)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                self.fig_K.patch.set_facecolor(mcol)
+                for a in self.fig_K.axes:
+                    a.set_facecolor(mcol)
 
         # initial Inputs-tab state: enable/disable compare controls and
         # install preview traces so changing inputs updates the preview.
+        # ensure preview scheduling handle exists
+        self._preview_after_id = None
+
+        # initialize compare state so Material B controls are set correctly
         try:
-            # ensure preview scheduling handle exists
-            self._preview_after_id = None
+            val = self.compare_var.get()
+            if isinstance(val, str):
+                enabled = val.lower() in ("1", "true", "t", "yes", "y")
+            else:
+                enabled = bool(val)
         except Exception:
-            self._preview_after_id = None
+            enabled = False
+
+        state = 'normal' if enabled else 'disabled'
+
+        # configure Material B optionmenu if present
+        if getattr(self, 'opt_matB', None) is not None:
+            try:
+                self.opt_matB.configure(state=state)
+            except Exception:
+                try:
+                    import logging
+                    logging.getLogger(__name__).exception('Failed to configure opt_matB')
+                except Exception:
+                    pass
+
+        # configure Material B thickness entry (and visual hint)
+        if getattr(self, 'entry_thickB', None) is not None:
+            try:
+                self.entry_thickB.configure(state=state)
+            except Exception:
+                try:
+                    import logging
+                    logging.getLogger(__name__).exception('Failed to configure entry_thickB state')
+                except Exception:
+                    pass
+            # visual hint: gray text when disabled (best-effort)
+            try:
+                if not enabled:
+                    self.entry_thickB.configure(text_color='gray')
+                else:
+                    # some CTkEntry implementations may not accept None; ignore failures
+                    self.entry_thickB.configure(text_color=None)
+            except Exception:
+                pass
+
+        # update animation layout (one or two panels)
         try:
-            # toggle compare so Material B controls are set correctly
-            self.toggle_compare()
+            self.configure_animation_axes(two_panels=enabled)
         except Exception:
-            pass
-        try:
-            # draw an initial preview (best-effort)
-            self.update_preview()
-        except Exception:
-            pass
-        try:
+            try:
+                import logging
+                logging.getLogger(__name__).exception('configure_animation_axes failed')
+            except Exception:
+                pass
+
+        # draw an initial preview (best-effort)
+        self.update_preview()
             # install traces on the input variables to debounce preview updates
-            self._install_preview_traces()
-        except Exception:
-            pass
+        self._install_preview_traces()
 
         # bind focus-out validation for inputs so correctness is checked when the
         # user leaves the box (and before we run the simulation).
-        try:
-            self.entry_Sb.bind('<FocusOut>', lambda e: self._validate_and_store('Sb'))
-            self.entry_trise.bind('<FocusOut>', lambda e: self._validate_and_store('trise'))
-            self.entry_tset.bind('<FocusOut>', lambda e: self._validate_and_store('tset'))
-            self.entry_Ldown.bind('<FocusOut>', lambda e: self._validate_and_store('Ldown'))
-            self.entry_hcoef.bind('<FocusOut>', lambda e: self._validate_and_store('h'))
-            self.entry_Ta_mean.bind('<FocusOut>', lambda e: self._validate_and_store('Ta_mean'))
-            self.entry_Ta_amp.bind('<FocusOut>', lambda e: self._validate_and_store('Ta_amp'))
-            self.entry_beta.bind('<FocusOut>', lambda e: self._validate_and_store('beta'))
-            # thickness entries already exist; bind them too
-            try:
-                self.entry_thickA.bind('<FocusOut>', lambda e: self._validate_and_store('thickness_A'))
-            except Exception:
-                pass
-            try:
-                self.entry_thickB.bind('<FocusOut>', lambda e: self._validate_and_store('thickness_B'))
-            except Exception:
-                pass
-        except Exception:
-            pass
+        self.entry_Sb.bind('<FocusOut>', lambda e: self._validate_and_store('Sb'))
+        self.entry_trise.bind('<FocusOut>', lambda e: self._validate_and_store('trise'))
+        self.entry_tset.bind('<FocusOut>', lambda e: self._validate_and_store('tset'))
+        self.entry_Ldown.bind('<FocusOut>', lambda e: self._validate_and_store('Ldown'))
+        self.entry_hcoef.bind('<FocusOut>', lambda e: self._validate_and_store('h'))
+        self.entry_Ta_mean.bind('<FocusOut>', lambda e: self._validate_and_store('Ta_mean'))
+        self.entry_Ta_amp.bind('<FocusOut>', lambda e: self._validate_and_store('Ta_amp'))
+        self.entry_beta.bind('<FocusOut>', lambda e: self._validate_and_store('beta'))
+        # thickness entries already exist; bind them too
+        self.entry_thickA.bind('<FocusOut>', lambda e: self._validate_and_store('thickness_A'))
+        self.entry_thickB.bind('<FocusOut>', lambda e: self._validate_and_store('thickness_B'))
 
         # run an initial validation to populate self._params
-        try:
-            self._validate_and_store()
-        except Exception:
-            pass
+        self._validate_and_store()
 
     def _build_results_tab(self):
         """Create the Results tab figure and axes."""
         self.fig_res = Figure(figsize=(8, 9))
-        try:
-            if getattr(self, '_input_frame_bg', None):
-                mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-                if mcol is not None:
-                    try:
-                        self.fig_res.patch.set_facecolor(mcol)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                self.fig_res.patch.set_facecolor(mcol)
         self.canvas_res = FigureCanvasTkAgg(self.fig_res, master=self.tab_results)
         self.canvas_res.get_tk_widget().pack(fill='both', expand=True)
         self.axs_res = self.fig_res.subplots(6, 1)
@@ -415,18 +424,12 @@ class App(ctk.CTk):
         self.canvas_temp = FigureCanvasTkAgg(self.fig_temp, master=self.tab_tempseb)
         self.canvas_temp.get_tk_widget().pack(fill='both', expand=True)
         self.ax_temp = self.fig_temp.subplots(1, 1)
-        try:
-            if getattr(self, '_input_frame_bg', None):
-                mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-                if mcol is not None:
-                    try:
-                        self.fig_temp.patch.set_facecolor(mcol)
-                        for a in self.fig_temp.axes:
-                            a.set_facecolor(mcol)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                self.fig_temp.patch.set_facecolor(mcol)
+                for a in self.fig_temp.axes:
+                    a.set_facecolor(mcol)
 
         # time slider for Temp & SEB (inactive until a run populates anim_data)
         self.temp_time_var = ctk.IntVar(value=0)
@@ -440,16 +443,13 @@ class App(ctk.CTk):
     def _build_animation_tab(self):
         """Create the Animation tab figure and controls."""
         self.fig_anim = Figure(figsize=(8, 3))
-        try:
-            if getattr(self, '_input_frame_bg', None):
-                mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-                if mcol is not None:
-                    try:
-                        self.fig_anim.patch.set_facecolor(mcol)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                try:
+                    self.fig_anim.patch.set_facecolor(mcol)
+                except Exception:
+                    pass
         self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
         self.canvas_anim.get_tk_widget().pack(side='left', fill='both', expand=True)
 
@@ -476,22 +476,16 @@ class App(ctk.CTk):
             # fallback: no action
             cur = self._last_tab
         # guard: don't run if the app is closed or widget destroyed
-        try:
-            if getattr(self, '_closed', False):
-                return
-            if hasattr(self, 'winfo_exists') and not self.winfo_exists():
-                return
-        except Exception:
-            pass
+        if getattr(self, '_closed', False):
+            return
+        if hasattr(self, 'winfo_exists') and not self.winfo_exists():
+            return
         if cur != getattr(self, '_last_tab', None):
             # if we just left the Inputs tab, start a simulation
             if getattr(self, '_last_tab', None) == 'Inputs':
                 # start background run if not already running
                 if not getattr(self, '_running', False):
-                    try:
-                        self._on_run()
-                    except Exception:
-                        pass
+                    self._on_run()
         self._last_tab = cur
         try:
             self._poll_after_id = self.after(300, self._poll_tab)
@@ -501,38 +495,18 @@ class App(ctk.CTk):
     def update_preview(self):
         """Update the small preview plot on the Inputs tab showing Kdown and Ta."""
         # guard: don't run if window is closed/destroyed
-        try:
-            if getattr(self, '_closed', False):
-                return
-            if hasattr(self, 'winfo_exists') and not self.winfo_exists():
-                return
-        except Exception:
-            pass
-        # Read inputs (use sensible defaults if parsing fails)
-        try:
-            Sb = float(self.Sb.get())
-        except Exception:
-            Sb = self.DEFAULTS['Sb']
-        try:
-            trise = int(float(self.trise_hr.get()) * self.hour)
-        except Exception:
-            trise = int(self.DEFAULTS['trise_hr'] * self.hour)
-        try:
-            tset = int(float(self.tset_hr.get()) * self.hour)
-        except Exception:
-            tset = int(self.DEFAULTS['tset_hr'] * self.hour)
-        try:
-            Ta_mean = float(self.Ta_mean_C.get()) + 273.15
-        except Exception:
-            Ta_mean = 293.15
-        try:
-            Ta_amp = float(self.Ta_amp_C.get())
-        except Exception:
-            Ta_amp = self.DEFAULTS['Ta_amp_C']
-        try:
-            Ldown = float(self.Ldown.get())
-        except Exception:
-            Ldown = self.DEFAULTS['Ldown']
+        if getattr(self, '_closed', False):
+            return
+        if hasattr(self, 'winfo_exists') and not self.winfo_exists():
+            return
+        
+        # Read inputs (already validated elsewhere) — just retrieve values
+        Sb = float(self.Sb.get())
+        trise = int(float(self.trise_hr.get()) * self.hour)
+        tset = int(float(self.tset_hr.get()) * self.hour)
+        Ta_mean = float(self.Ta_mean_C.get()) + 273.15
+        Ta_amp = float(self.Ta_amp_C.get())
+        Ldown = float(self.Ldown.get())
 
         # plot over a 24 h window with a 10-min timestep
         tmax = 24 * self.hour
@@ -543,127 +517,83 @@ class App(ctk.CTk):
         TaC = TaK - 273.15
 
         # Ta figure
-        try:
-            self.ax_Ta.clear()
-            self.ax_Ta.plot(t / self.hour, TaC, color='tab:blue', label='Ta (°C)')
-            self.ax_Ta.set_xlabel('Time (h)')
-            self.ax_Ta.set_ylabel('Air temp (°C)')
-            self.ax_Ta.set_xlim(0, 24)
-            # apply background and spine styling to match app
-            try:
-                bg = getattr(self, '_input_frame_bg', None)
-                if bg is not None:
-                    mcol = self._mpl_color_from_ctk(bg)
-                    if mcol is not None:
-                        self.fig_Ta.patch.set_facecolor(mcol)
-                        self.ax_Ta.set_facecolor(mcol)
-                        # compute perceived luminance for contrast
-                        dark = False
-                        try:
-                            if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
-                                lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
-                                dark = lum < 0.5
-                        except Exception:
-                            dark = False
-                        spcol = 'white' if dark else 'black'
-                        for s in self.ax_Ta.spines.values():
-                            s.set_color(spcol)
-                            s.set_linewidth(0.8)
-                        # ticks and labels
-                        self.ax_Ta.tick_params(colors=spcol)
-                        self.ax_Ta.xaxis.label.set_color(spcol)
-                        self.ax_Ta.yaxis.label.set_color(spcol)
-            except Exception:
-                pass
-            self.ax_Ta.grid(True, linestyle=':', alpha=0.5)
-            self.ax_Ta.legend(loc='upper right')
-            # avoid tight_layout clipping the right spine
-            try:
-                self.fig_Ta.subplots_adjust(right=0.98)
-            except Exception:
-                pass
-            try:
-                # use tight_layout but reserve a small right margin so legends/spines are not clipped
-                self.fig_Ta.tight_layout(rect=(0, 0, 0.98, 1))
-            except Exception:
-                pass
-            try:
-                self.canvas_Ta.draw()
-            except Exception:
-                pass
-        except Exception:
-            pass
+        self.ax_Ta.clear()
+        self.ax_Ta.plot(t / self.hour, TaC, color='tab:blue', label='Ta (Â°C)')
+        self.ax_Ta.set_xlabel('Time (h)')
+        self.ax_Ta.set_ylabel('Air temp (Â°C)')
+        self.ax_Ta.set_xlim(0, 24)
+        # apply background and spine styling to match app
+        bg = getattr(self, '_input_frame_bg', None)
+        if bg is not None:
+            mcol = self._mpl_color_from_ctk(bg)
+            if mcol is not None:
+                self.fig_Ta.patch.set_facecolor(mcol)
+                self.ax_Ta.set_facecolor(mcol)
+                # compute perceived luminance for contrast
+                dark = False
+                try:
+                    if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
+                        lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
+                        dark = lum < 0.5
+                except Exception:
+                    dark = False
+                spcol = 'white' if dark else 'black'
+                for s in self.ax_Ta.spines.values():
+                    s.set_color(spcol)
+                    s.set_linewidth(0.8)
+                # ticks and labels
+                self.ax_Ta.tick_params(colors=spcol)
+                self.ax_Ta.xaxis.label.set_color(spcol)
+                self.ax_Ta.yaxis.label.set_color(spcol)
+        self.ax_Ta.grid(True, linestyle=':', alpha=0.5)
+        self.ax_Ta.legend(loc='upper right')
+        # avoid tight_layout clipping the right spine
+        self.fig_Ta.subplots_adjust(right=0.98)
+        # use tight_layout but reserve a small right margin so legends/spines are not clipped
+        self.fig_Ta.tight_layout(rect=(0, 0, 0.98, 1))
+        self.canvas_Ta.draw()
 
         # Kdown + Ldown figure
-        try:
-            self.ax_K.clear()
-            self.ax_K.plot(t / self.hour, S0, color='tab:orange', label='Kdown (W/m2)')
-            self.ax_K.plot(t / self.hour, np.full_like(t, Ldown), color='tab:purple', linestyle='--', label='Ldown (W/m2)')
-            self.ax_K.set_xlabel('Time (h)')
-            self.ax_K.set_ylabel('Flux (W/m2)')
-            self.ax_K.set_xlim(0, 24)
-            try:
-                bg = getattr(self, '_input_frame_bg', None)
-                if bg is not None:
-                    mcol = self._mpl_color_from_ctk(bg)
-                    if mcol is not None:
-                        self.fig_K.patch.set_facecolor(mcol)
-                        self.ax_K.set_facecolor(mcol)
-                        dark = False
-                        try:
-                            if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
-                                lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
-                                dark = lum < 0.5
-                        except Exception:
-                            dark = False
-                        spcol = 'white' if dark else 'black'
-                        for s in self.ax_K.spines.values():
-                            s.set_color(spcol)
-                            s.set_linewidth(0.8)
-                        self.ax_K.tick_params(colors=spcol)
-                        self.ax_K.xaxis.label.set_color(spcol)
-                        self.ax_K.yaxis.label.set_color(spcol)
-            except Exception:
-                pass
-            self.ax_K.grid(True, linestyle=':', alpha=0.5)
-            self.ax_K.legend(loc='upper right')
-            try:
-                self.fig_K.subplots_adjust(right=0.98)
-            except Exception:
-                pass
-            try:
-                # reserve right margin for legend
-                self.fig_K.tight_layout(rect=(0, 0, 0.98, 1))
-            except Exception:
-                pass
-            try:
-                self.canvas_K.draw()
-            except Exception:
-                pass
-        except Exception:
-            pass
+        self.ax_K.clear()
+        self.ax_K.plot(t / self.hour, S0, color='tab:orange', label='Kdown (W/m2)')
+        self.ax_K.plot(t / self.hour, np.full_like(t, Ldown), color='tab:purple', linestyle='--', label='Ldown (W/m2)')
+        self.ax_K.set_xlabel('Time (h)')
+        self.ax_K.set_ylabel('Flux (W/m2)')
+        self.ax_K.set_xlim(0, 24)
+        bg = getattr(self, '_input_frame_bg', None)
+        if bg is not None:
+            mcol = self._mpl_color_from_ctk(bg)
+            if mcol is not None:
+                self.fig_K.patch.set_facecolor(mcol)
+                self.ax_K.set_facecolor(mcol)
+                dark = False
+                try:
+                    if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
+                        lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
+                        dark = lum < 0.5
+                except Exception:
+                    dark = False
+                spcol = 'white' if dark else 'black'
+                for s in self.ax_K.spines.values():
+                    s.set_color(spcol)
+                    s.set_linewidth(0.8)
+                self.ax_K.tick_params(colors=spcol)
+                self.ax_K.xaxis.label.set_color(spcol)
+                self.ax_K.yaxis.label.set_color(spcol)
+        self.ax_K.grid(True, linestyle=':', alpha=0.5)
+        self.ax_K.legend(loc='upper right')
+        self.fig_K.subplots_adjust(right=0.98)
+        # reserve right margin for legend
+        self.fig_K.tight_layout(rect=(0, 0, 0.98, 1))
+        self.canvas_K.draw()
 
     # --- preview auto-update helpers ---
     def _schedule_preview_update(self, delay_ms: int = 200):
         """Debounced schedule for preview updates (cancels previous scheduled call)."""
-        try:
-            pid = getattr(self, '_preview_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        try:
-            self._preview_after_id = self.after(delay_ms, self.update_preview)
-        except Exception:
-            self._preview_after_id = None
-            # immediate fallback
-            try:
-                self.update_preview()
-            except Exception:
-                pass
+        pid = getattr(self, '_preview_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+        self._preview_after_id = self.after(delay_ms, self.update_preview)
 
     def _install_preview_traces(self):
         """Install traces on input variables so changing them auto-updates the preview."""
@@ -681,11 +611,8 @@ class App(ctk.CTk):
                 # tkinter variables support trace_add in modern Python
                 v.trace_add('write', lambda *a, _=v: self._schedule_preview_update())
             except Exception:
-                try:
-                    # fallback to older trace
-                    v.trace('w', lambda *a, _=v: self._schedule_preview_update())
-                except Exception:
-                    pass
+                # fallback to older trace
+                v.trace('w', lambda *a, _=v: self._schedule_preview_update())
 
     def _validate_and_store(self, key: Optional[str] = None, event: Optional[object] = None):
         """Validate input fields on focus-out and store canonical values in self._params.
@@ -696,10 +623,7 @@ class App(ctk.CTk):
         """
         # helper to safely set a doublevar (and clamp/convert)
         def set_doublevar(var, val):
-            try:
-                var.set(val)
-            except Exception:
-                pass
+            var.set(val)
 
         # helper to map validation keys to entry widgets and readable names
         key_map = {
@@ -708,35 +632,26 @@ class App(ctk.CTk):
             'tset': (self.entry_tset, 'Sunset tset (h)'),
             'Ldown': (self.entry_Ldown, 'Incoming Ldown (W/m2)'),
             'h': (self.entry_hcoef, 'Heat transfer h (W/m2K)'),
-            'Ta_mean': (self.entry_Ta_mean, 'Air mean temp (°C)'),
-            'Ta_amp': (self.entry_Ta_amp, 'Air amp (°C)'),
+            'Ta_mean': (self.entry_Ta_mean, 'Air mean temp (Â°C)'),
+            'Ta_amp': (self.entry_Ta_amp, 'Air amp (Â°C)'),
             'beta': (self.entry_beta, 'Bowen beta'),
             'thickness_A': (self.entry_thickA, 'Thickness A (m)'),
             'thickness_B': (self.entry_thickB, 'Thickness B (m)'),
         }
 
         def focus_and_select(entry_widget):
-            try:
-                entry_widget.focus_set()
-            except Exception:
-                pass
+            entry_widget.focus_set()
             try:
                 # CTkEntry exposes selection methods via underlying tk widget
                 entry_widget.select_range(0, 'end')
             except Exception:
-                try:
-                    w = getattr(entry_widget, 'entry', None) or getattr(entry_widget, 'master', None)
-                    if w is not None and hasattr(w, 'select_range'):
-                        w.select_range(0, 'end')
-                except Exception:
-                    pass
+                w = getattr(entry_widget, 'entry', None) or getattr(entry_widget, 'master', None)
+                if w is not None and hasattr(w, 'select_range'):
+                    w.select_range(0, 'end')
 
         def show_fix_message(entry_widget, label, msg):
             # show modal dialog and return focus to the offending widget
-            try:
-                messagebox.showerror('Invalid input', msg)
-            except Exception:
-                pass
+            messagebox.showerror('Invalid input', msg)
             try:
                 # restore focus to the widget after the dialog closes
                 self.after(1, lambda: focus_and_select(entry_widget))
@@ -750,7 +665,7 @@ class App(ctk.CTk):
                 if v < 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid Sb — must be a non-negative number."
+                return False, f"Invalid Sb â€” must be a non-negative number."
             return True, float(v)
 
         def validate_trise():
@@ -760,7 +675,7 @@ class App(ctk.CTk):
                     raise ValueError
                 return True, int(vh * self.hour)
             except Exception:
-                return False, f"Invalid sunrise time — enter hours between 0 and 24."
+                return False, f"Invalid sunrise time â€” enter hours between 0 and 24."
 
         def validate_tset():
             try:
@@ -769,7 +684,7 @@ class App(ctk.CTk):
                     raise ValueError
                 return True, int(vh * self.hour)
             except Exception:
-                return False, f"Invalid sunset time — enter hours between 0 and 24."
+                return False, f"Invalid sunset time â€” enter hours between 0 and 24."
 
         def validate_Ldown():
             try:
@@ -777,7 +692,7 @@ class App(ctk.CTk):
                 if v < 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid Ldown — must be a non-negative number."
+                return False, f"Invalid Ldown â€” must be a non-negative number."
             return True, float(v)
 
         def validate_h():
@@ -786,14 +701,14 @@ class App(ctk.CTk):
                 if v < 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid heat-transfer coefficient — must be non-negative."
+                return False, f"Invalid heat-transfer coefficient â€” must be non-negative."
             return True, float(v)
 
         def validate_Ta_mean():
             try:
                 v_c = float(self.Ta_mean_C.get())
             except Exception:
-                return False, f"Invalid air mean temperature — enter a numeric °C value."
+                return False, f"Invalid air mean temperature â€” enter a numeric Â°C value."
             return True, float(v_c) + 273.15
 
         def validate_Ta_amp():
@@ -802,14 +717,14 @@ class App(ctk.CTk):
                 if v < 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid air temperature amplitude — must be non-negative."
+                return False, f"Invalid air temperature amplitude â€” must be non-negative."
             return True, float(v)
 
         def validate_beta():
             try:
                 v = float(self.beta_var.get())
             except Exception:
-                return False, f"Invalid Bowen beta — enter a numeric value."
+                return False, f"Invalid Bowen beta â€” enter a numeric value."
             return True, float(v)
 
         def validate_thickness_A():
@@ -818,7 +733,7 @@ class App(ctk.CTk):
                 if v <= 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid Thickness A — must be a positive number."
+                return False, f"Invalid Thickness A â€” must be a positive number."
             return True, float(v)
 
         def validate_thickness_B():
@@ -827,7 +742,7 @@ class App(ctk.CTk):
                 if v <= 0:
                     raise ValueError
             except Exception:
-                return False, f"Invalid Thickness B — must be a positive number."
+                return False, f"Invalid Thickness B â€” must be a positive number."
             return True, float(v)
 
         validators = {
@@ -857,11 +772,8 @@ class App(ctk.CTk):
                 if entry_widget is not None:
                     show_fix_message(entry_widget, label, msg)
                 else:
-                    try:
-                        messagebox.showerror('Invalid input', msg)
-                    except Exception:
-                        pass
-                return False
+                    messagebox.showerror('Invalid input', msg)
+                    return False
             # on success, store canonical value
             self._params[kk if kk not in ('thickness_A', 'thickness_B') else kk] = res
         return True
@@ -872,28 +784,19 @@ class App(ctk.CTk):
 
         We debounce using `after` so the tooltip only appears when the cursor lingers.
         """
-        try:
-            # if this is Material B's widget and compare is disabled, don't show
-            try:
-                if widget is getattr(self, 'opt_matB', None) and not bool(getattr(self, 'compare_var', ctk.BooleanVar(value=False)).get()):
-                    return
-            except Exception:
-                pass
-            # cancel any existing schedule
-            pid = getattr(self, '_tooltip_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-            # schedule new show
-            self._tooltip_after_id = self.after(delay, lambda: self._show_material_tooltip(widget, var))
-        except Exception:
-            # immediate fallback: show now
-            try:
-                self._show_material_tooltip(widget, var)
-            except Exception:
-                pass
+        # if this is Material B's widget and compare is disabled, don't show
+        if widget is getattr(self, 'opt_matB', None) and not bool(getattr(self, 'compare_var', ctk.BooleanVar(value=False)).get()):
+            return
+        # cancel any existing schedule
+        pid = getattr(self, '_tooltip_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+ 
+        # schedule new show
+        self._tooltip_after_id = self.after(delay, lambda: self._show_material_tooltip(widget, var))
+ 
+        # immediate fallback: show now
+        self._show_material_tooltip(widget, var)
 
     def _show_material_tooltip(self, widget, var):
         """Create and show a small tooltip window near `widget` with material properties.
@@ -901,113 +804,118 @@ class App(ctk.CTk):
         `var` is a tkinter variable whose value is the material key name; we load
         the material and display a few fields (k, rho, cp, albedo, emissivity, evaporation).
         """
+        # ensure any scheduled show id is cleared
         try:
-            # ensure any scheduled show id is cleared
+            self._tooltip_after_id = None
+        except Exception:
+            pass
+        # destroy existing tooltip if present (assign to local var so
+        # static checkers can reason about None-ness)
+        tw = getattr(self, '_tooltip_win', None)
+        if tw is not None:
+            tw.destroy()
+        self._tooltip_win = None
+ 
+        # defensive: if this is Material B and compare is off, don't show
+        if widget is getattr(self, 'opt_matB', None) and not bool(getattr(self, 'compare_var', ctk.BooleanVar(value=False)).get()):
+            return
+
+        mat_key = None
+        try:
+            mat_key = var.get()
+        except Exception:
             try:
-                self._tooltip_after_id = None
+                mat_key = str(var)
             except Exception:
-                pass
-            # destroy existing tooltip if present (assign to local var so
-            # static checkers can reason about None-ness)
-            try:
-                tw = getattr(self, '_tooltip_win', None)
-                if tw is not None:
-                    try:
-                        tw.destroy()
-                    except Exception:
-                        pass
-                self._tooltip_win = None
-            except Exception:
-                pass
+                mat_key = None
+        if not mat_key:
+            return
 
-            # defensive: if this is Material B and compare is off, don't show
-            try:
-                if widget is getattr(self, 'opt_matB', None) and not bool(getattr(self, 'compare_var', ctk.BooleanVar(value=False)).get()):
-                    return
-            except Exception:
-                pass
+        # attempt to load material (best-effort; load_material may raise)
+        try:
+            mat = load_material(mat_key)
+        except Exception:
+            mat = None
 
-            mat_key = None
-            try:
-                mat_key = var.get()
-            except Exception:
-                try:
-                    mat_key = str(var)
-                except Exception:
-                    mat_key = None
-            if not mat_key:
-                return
+        # build tooltip text
+        lines = [f"{mat_key}"]
+        try:
+            if mat is None:
+                lines.append('(no data)')
+            else:
+                # prefer mapping access when the material is a dict
+                mat_map: Optional[Mapping[str, Any]] = mat if isinstance(mat, Mapping) else None
 
-            # attempt to load material (best-effort; load_material may raise)
-            try:
-                mat = load_material(mat_key)
-            except Exception:
-                mat = None
-
-            # build tooltip text
-            lines = [f"{mat_key}"]
-            try:
-                if mat is None:
-                    lines.append('(no data)')
-                else:
-                    # prefer mapping access when the material is a dict
-                    mat_map: Optional[Mapping[str, Any]] = mat if isinstance(mat, Mapping) else None
-
-                    def g(k, fmt='{:.3g}'):
-                        try:
-                            if mat_map is not None:
-                                v = mat_map.get(k)
-                            else:
-                                v = getattr(mat, k)
-                            return fmt.format(v) if v is not None else '—'
-                        except Exception:
-                            return '—'
-
-                    k_val = g('k')
-                    rho = g('rho')
-                    cp = g('cp')
-                    alb = g('albedo')
-                    emis = g('emissivity')
-                    evap = False
+                def g(k, fmt='{:.3g}'):
                     try:
                         if mat_map is not None:
-                            evap = bool(mat_map.get('evaporation', False))
+                            v = mat_map.get(k)
                         else:
-                            evap = bool(getattr(mat, 'evaporation', False))
+                            v = getattr(mat, k)
+                        return fmt.format(v) if v is not None else 'â€”'
                     except Exception:
-                        evap = False
+                        return 'â€”'
 
-                    lines.append(f"k={k_val} W/mK  rho={rho} kg/m3  cp={cp} J/kgK")
-                    lines.append(f"albedo={alb}  emissivity={emis}  evap={evap}")
-            except Exception:
-                lines.append('(error fetching properties)')
-
-            text = '\n'.join(lines)
-
-            # create tooltip window
-            try:
-                tw = tk.Toplevel(self)
-                tw.wm_overrideredirect(True)
-                tw.wm_attributes('-topmost', True)
-                # style with CTkLabel if available so it matches the app theme
+                k_val = g('k')
+                rho = g('rho')
+                cp = g('cp')
+                alb = g('albedo')
+                emis = g('emissivity')
+                evap = False
                 try:
-                    lbl = ctk.CTkLabel(tw, text=text, justify='left', padx=8, pady=6)
-                    lbl.pack()
+                    if mat_map is not None:
+                        evap = bool(mat_map.get('evaporation', False))
+                    else:
+                        evap = bool(getattr(mat, 'evaporation', False))
                 except Exception:
-                    lbl = tk.Label(tw, text=text, justify='left', bg='#ffffe0', relief='solid', bd=1)
-                    lbl.pack()
-                # position near the widget (to the right and slightly below)
-                try:
-                    wx = widget.winfo_rootx()
-                    wy = widget.winfo_rooty()
-                    ww = widget.winfo_width()
-                    wh = widget.winfo_height()
-                    tw.geometry(f'+{wx + ww + 8}+{wy + max(0, wh//2 - 8)}')
-                except Exception:
-                    pass
-                self._tooltip_win = tw
-            except Exception:
-                self._tooltip_win = None
+                    evap = False
+
+                lines.append(f"k={k_val} W/mK  rho={rho} kg/m3  cp={cp} J/kgK")
+                lines.append(f"albedo={alb}  emissivity={emis}  evap={evap}")
+        except Exception:
+            lines.append('(error fetching properties)')
+
+        text = '\n'.join(lines)
+
+        # create tooltip window
+        tw = tk.Toplevel(self)
+        tw.wm_overrideredirect(True)
+        tw.wm_attributes('-topmost', True)
+        # style with CTkLabel if available so it matches the app theme
+        try:
+            lbl = ctk.CTkLabel(tw, text=text, justify='left', padx=8, pady=6)
+            lbl.pack()
+        except Exception:
+            lbl = tk.Label(tw, text=text, justify='left', bg='#ffffe0', relief='solid', bd=1)
+            lbl.pack()
+        # position near the widget (to the right and slightly below)
+        try:
+            wx = widget.winfo_rootx()
+            wy = widget.winfo_rooty()
+            ww = widget.winfo_width()
+            wh = widget.winfo_height()
+            tw.geometry(f'+{wx + ww + 8}+{wy + max(0, wh//2 - 8)}')
+        except Exception:
+            # geometry failed; still show the tooltip at default location
+            pass
+
+        # keep a reference so hide can destroy it; bind leave on the tooltip
+        # itself so moving into the tooltip still hides it when the pointer
+        # leaves the tooltip window.
+        try:
+            tw.bind('<Leave>', lambda e: self._hide_material_tooltip())
+            tw.bind('<Enter>', lambda e: None)
+        except Exception:
+            pass
+        self._tooltip_win = tw
+        # remember origin and bind a motion handler so we hide the tooltip
+        # when the pointer leaves both the origin widget and the tooltip.
+        try:
+            self._tooltip_origin = widget
+        except Exception:
+            self._tooltip_origin = None
+        try:
+            self.bind('<Motion>', self._tooltip_motion_handler)
         except Exception:
             pass
 
@@ -1016,44 +924,73 @@ class App(ctk.CTk):
         try:
             pid = getattr(self, '_tooltip_after_id', None)
             if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
+                self.after_cancel(pid)
                 self._tooltip_after_id = None
+            tw = getattr(self, '_tooltip_win', None)
+            if tw is not None:
+                tw.destroy()
+        except Exception:
+            pass
+        # clear origin and unbind motion handler
+        try:
+            self._tooltip_origin = None
         except Exception:
             pass
         try:
-            tw = getattr(self, '_tooltip_win', None)
-            if tw is not None:
-                try:
-                    tw.destroy()
-                except Exception:
-                    pass
-            self._tooltip_win = None
+            self.unbind('<Motion>')
         except Exception:
             pass
+        self._tooltip_win = None
+
+    def _tooltip_motion_handler(self, event=None):
+        """Hide tooltip when mouse leaves both the origin widget and tooltip."""
+        tw = getattr(self, '_tooltip_win', None)
+        if tw is None:
+            try:
+                self.unbind('<Motion>')
+            except Exception:
+                pass
+            return
+        origin = getattr(self, '_tooltip_origin', None)
+        try:
+            px = self.winfo_pointerx()
+            py = self.winfo_pointery()
+        except Exception:
+            # unable to query pointer; be conservative and hide
+            self._hide_material_tooltip()
+            return
+        # check tooltip geometry
+        try:
+            tx = tw.winfo_rootx(); ty = tw.winfo_rooty(); tw_w = tw.winfo_width(); tw_h = tw.winfo_height()
+            if tx <= px <= tx + tw_w and ty <= py <= ty + tw_h:
+                return
+        except Exception:
+            pass
+        # check origin geometry
+        if origin is not None:
+            try:
+                ox = origin.winfo_rootx(); oy = origin.winfo_rooty(); ow = origin.winfo_width(); oh = origin.winfo_height()
+                if ox <= px <= ox + ow and oy <= py <= oy + oh:
+                    return
+            except Exception:
+                pass
+        # pointer is outside both -> hide
+        self._hide_material_tooltip()
 
     # helper: apply app background color to a matplotlib figure and its axes
     def _apply_fig_bg(self, fig):
-        try:
-            bg = getattr(self, '_input_frame_bg', None)
-            if not bg:
-                try:
-                    bg = self.cget('bg')
-                except Exception:
-                    bg = None
-            if not bg:
-                return
-            mcol = self._mpl_color_from_ctk(bg)
-            fig.patch.set_facecolor(mcol)
-            for ax in getattr(fig, 'axes', []):
-                try:
-                    ax.set_facecolor(mcol)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        bg = getattr(self, '_input_frame_bg', None)
+        if not bg:
+            try:
+                bg = self.cget('bg')
+            except Exception:
+                bg = None
+        if not bg:
+            return
+        mcol = self._mpl_color_from_ctk(bg)
+        fig.patch.set_facecolor(mcol)
+        for ax in getattr(fig, 'axes', []):
+            ax.set_facecolor(mcol)
 
     def _mpl_color_from_ctk(self, c):
         """Convert a CTk color (hex string or tuple) to an MPL-compatible color.
@@ -1061,22 +998,23 @@ class App(ctk.CTk):
         CTk may return colors as HEX strings like '#rrggbb' or as tuples.
         Handle common cases and fall back to the input unchanged.
         """
-        try:
-            if c is None:
-                return None
-            # already acceptable (named color or hex)
-            if isinstance(c, str):
-                return c
-            # tuple of floats in 0..1
-            if isinstance(c, tuple) and all(isinstance(x, float) and 0.0 <= x <= 1.0 for x in c):
-                return c
-            # tuple of ints 0..255
-            if isinstance(c, tuple) and all(isinstance(x, (int, float)) for x in c):
-                vals = tuple(float(x) / 255.0 if x > 1.0 else float(x) for x in c)
-                return vals
-        except Exception:
-            pass
-        return c
+        if c is None:
+            return None
+        # already acceptable (named color or hex)
+        if isinstance(c, str):
+            return c
+        # tuple-like: try to coerce to an RGB or RGBA tuple of floats in 0..1
+        if isinstance(c, tuple) and all(isinstance(x, (int, float)) for x in c):
+            vals = [float(x) / 255.0 if (isinstance(x, (int,)) and x > 1) else float(x) for x in c]
+            # ensure length 3 or 4
+            if len(vals) >= 3:
+                if len(vals) == 3:
+                    return (vals[0], vals[1], vals[2])
+                else:
+                    # keep first 4 components as RGBA
+                    return (vals[0], vals[1], vals[2], vals[3])
+            # fallthrough
+        return None
 
     def _mat_allows_evap(self, mat: Optional[object]) -> bool:
         """Return True if the given material (dict-like or object) enables evaporation.
@@ -1095,88 +1033,81 @@ class App(ctk.CTk):
         except Exception:
             return False
 
-    # status text stored internally (no visible widget)
-    # any code that previously called _set_status now writes to _status_text
-
-    # --- Compare UI handling ---
-    def toggle_compare(self):
-        enabled = bool(self.compare_var.get())
-        # enable/disable material B controls
+    def _on_compare_toggle(self):
+        """Enable/disable Material B controls when the Compare checkbox changes."""
+        try:
+            enabled = bool(self.compare_var.get())
+        except Exception:
+            enabled = False
         state = 'normal' if enabled else 'disabled'
         try:
-            self.opt_matB.configure(state=state)
-            self.entry_thickB.configure(state=state)
+            if getattr(self, 'opt_matB', None) is not None:
+                self.opt_matB.configure(state=state)
         except Exception:
             pass
-
-        # visually indicate Material B entry disabled when compare is off (leave label color unchanged)
         try:
-            try:
-                if not enabled:
-                    try:
-                        self.entry_thickB.configure(text_color='gray')
-                    except Exception:
-                        pass
-                else:
-                    try:
+            if getattr(self, 'entry_thickB', None) is not None:
+                self.entry_thickB.configure(state=state)
+        except Exception:
+            pass
+        # visually indicate Material B entry and label color when compare toggles
+        try:
+            if not enabled:
+                # set both the entry text and the label to gray when disabled
+                try:
+                    self.entry_thickB.configure(text_color='gray')
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, '_lbl_thickB_color_default', None) is not None:
+                        self.lbl_thickB.configure(text_color='gray')
+                    else:
+                        self.lbl_thickB.configure(text_color='gray')
+                except Exception:
+                    pass
+            else:
+                # restore label and entry to their saved defaults (best-effort)
+                try:
+                    if getattr(self, '_entry_thickB_text_color_default', None) is not None:
+                        self.entry_thickB.configure(text_color=self._entry_thickB_text_color_default)
+                    else:
+                        # try removing the override
                         self.entry_thickB.configure(text_color=None)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, '_lbl_thickB_color_default', None) is not None:
+                        self.lbl_thickB.configure(text_color=self._lbl_thickB_color_default)
+                    else:
+                        self.lbl_thickB.configure(text_color=None)
+                except Exception:
+                    pass
         except Exception:
             pass
-
-        # reconfigure animation axes to show 1 or 2 panels
         try:
+            # update animation layout
             self.configure_animation_axes(two_panels=enabled)
         except Exception:
             pass
 
-        # create/remove Compare results tab (CTkTabview)
-        try:
-            if enabled and getattr(self, 'tab_compare', None) is None:
-                # add a 'Compare' tab to the CTkTabview and create a figure there
-                self.tabview.add('Compare')
-                self.tab_compare = self.tabview.tab('Compare')
-                # create compare figure and canvas
-                try:
-                    self.fig_comp = Figure(figsize=(8, 6))
-                    self.canvas_comp = FigureCanvasTkAgg(self.fig_comp, master=self.tab_compare)
-                    self.canvas_comp.get_tk_widget().pack(fill='both', expand=True)
-                    self.axs_comp = self.fig_comp.subplots(6, 1)
-                except Exception:
-                    self.fig_comp = None
-                    self.canvas_comp = None
-                    self.axs_comp = None
-            elif not enabled and getattr(self, 'tab_compare', None) is not None:
-                try:
-                    # CTkTabview provides a remove method in newer versions
-                    remove_fn = getattr(self.tabview, 'remove', None)
-                    if callable(remove_fn):
-                        remove_fn('Compare')
-                    else:
-                        try:
-                            delattr(self, 'tab_compare')
-                        except Exception:
-                            pass
-                except Exception:
-                    try:
-                        delattr(self, 'tab_compare')
-                    except Exception:
-                        pass
-                self.tab_compare = None
-                self.fig_comp = None
-                self.canvas_comp = None
-                self.axs_comp = None
-        except Exception:
-            pass
+    # status text stored internally (no visible widget)
+    # any code that previously called _set_status now writes to _status_text
+
+    # Compare UI handling removed: comparison checkbox exists but behavior is
+    # handled when running the simulation; Material B controls are enabled/disabled
+    # during initial setup below.
 
     # --- Animation axes management ---
     def configure_animation_axes(self, two_panels: bool = False):
         # destroy old figure and recreate based on two_panels
+        # if canvas_anim doesn't exist yet (e.g. called during init), skip destroy
         try:
-            self.canvas_anim.get_tk_widget().destroy()
+            cav = getattr(self, 'canvas_anim', None)
+            if cav is not None:
+                try:
+                    cav.get_tk_widget().destroy()
+                except Exception:
+                    pass
         except Exception:
             pass
         if two_panels:
@@ -1189,23 +1120,17 @@ class App(ctk.CTk):
         self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
         self.canvas_anim.get_tk_widget().pack(side='left', fill='both', expand=True)
         # redraw static background
-        try:
-            self.draw_anim_static()
-        except Exception:
-            pass
+        self.draw_anim_static()
 
     def draw_anim_static(self):
         # draw a simple background showing material depths
         # guard: avoid drawing if app is closed
-        try:
-            if getattr(self, '_closed', False):
-                return
-            if not getattr(self, 'axes_anim', None):
-                return
-            if hasattr(self, 'winfo_exists') and not self.winfo_exists():
-                return
-        except Exception:
-            pass
+        if getattr(self, '_closed', False):
+            return
+        if not getattr(self, 'axes_anim', None):
+            return
+        if hasattr(self, 'winfo_exists') and not self.winfo_exists():
+            return
         ax = self.axes_anim[0]
         ax.clear()
         try:
@@ -1228,10 +1153,7 @@ class App(ctk.CTk):
             ax2.set_xlim(0, 1)
             ax2.invert_yaxis()
             ax2.set_title('Material B (right)')
-        try:
-            self.canvas_anim.draw()
-        except Exception:
-            pass
+        self.canvas_anim.draw()
 
     # --- Animation control ---
     def toggle_animation(self):
@@ -1239,27 +1161,21 @@ class App(ctk.CTk):
             messagebox.showerror('Error', 'Run a simulation first')
             return
         self.animating = not self.animating
-        try:
-            self.btn_start.configure(text='Stop' if self.animating else 'Start')
-        except Exception:
-            pass
+        self.btn_start.configure(text='Stop' if self.animating else 'Start')
         if self.animating:
             # start loop
             self.animate_step()
 
     def animate_step(self):
         # guard: stop if app closed or animation flag cleared
-        try:
-            if getattr(self, '_closed', False):
-                self.animating = False
-                return
-            if not self.animating:
-                return
-            if hasattr(self, 'winfo_exists') and not self.winfo_exists():
-                self.animating = False
-                return
-        except Exception:
-            pass
+        if getattr(self, '_closed', False):
+            self.animating = False
+            return
+        if not self.animating:
+            return
+        if hasattr(self, 'winfo_exists') and not self.winfo_exists():
+            self.animating = False
+            return
         anim_data = getattr(self, 'anim_data', None)
         if anim_data is None:
             # nothing to animate
@@ -1274,35 +1190,20 @@ class App(ctk.CTk):
         # draw left
         axL = self.axes_anim[0]
         axL.clear()
-        try:
-            axL.plot(outA['T_profiles'][i] - 273.15, outA['z'], '-r')
-        except Exception:
-            pass
+        axL.plot(outA['T_profiles'][i] - 273.15, outA['z'], '-r')
         axL.invert_yaxis()
         # right if present
         if len(self.axes_anim) > 1 and outB is not None:
             axR = self.axes_anim[1]
             axR.clear()
-            try:
-                axR.plot(outB['T_profiles'][i] - 273.15, outB['z'], '-b')
-            except Exception:
-                pass
+            axR.plot(outB['T_profiles'][i] - 273.15, outB['z'], '-b')
             axR.invert_yaxis()
         # draw simple SEB arrows near surface on each axis
-        try:
-            self.draw_seb_arrows(axL, outA, i, mat=matA)
-        except Exception:
-            pass
+        self.draw_seb_arrows(axL, outA, i, mat=matA)
         if len(self.axes_anim) > 1 and outB is not None:
-            try:
-                self.draw_seb_arrows(self.axes_anim[1], outB, i, mat=matB)
-            except Exception:
-                pass
+            self.draw_seb_arrows(self.axes_anim[1], outB, i, mat=matB)
 
-        try:
-            self.canvas_anim.draw()
-        except Exception:
-            pass
+        self.canvas_anim.draw()
 
         self.anim_idx += 1
         # schedule next (store id so it can be cancelled)
@@ -1322,43 +1223,37 @@ class App(ctk.CTk):
         #  - H (sensible)       : upward when positive (surface->air)
         #  - E (latent)         : upward when positive
         #  - G (ground)         : downward when positive into the ground
-        try:
-            Q = out['Qstar'][idx]; L = out['L'][idx]; H = out['H'][idx];
-            # only include latent flux if material explicitly allows evaporation
-            if self._mat_allows_evap(mat):
-                # safe-get E (may be list or array)
-                E = out.get('E', np.zeros_like(out.get('times', [0])))[idx]
+        Q = out['Qstar'][idx]; L = out['L'][idx]; H = out['H'][idx];
+        # only include latent flux if material explicitly allows evaporation
+        if self._mat_allows_evap(mat):
+            # safe-get E (may be list or array)
+            E = out.get('E', np.zeros_like(out.get('times', [0])))[idx]
+        else:
+            E = 0.0
+        G = out['G'][idx]
+        vals = [Q, L, H, E, G]
+        maxv = max(1.0, max(abs(v) for v in vals))
+        # vertical positions (axes fraction) for arrows
+        y_positions = [0.85, 0.72, 0.59, 0.46, 0.33]
+        labels = ['Q*', 'L*', 'H', 'E', 'G']
+        colors = ['orange', 'magenta', 'green', 'blue', 'saddlebrown']
+        for k, v in enumerate(vals):
+            y = y_positions[k]
+            frac = 0.08 * (abs(v) / maxv)
+            if k in (0, 1, 4):
+                # draw arrow pointing downwards (incoming into surface)
+                start = (0.92, y)
+                end = (0.92, y - frac)
+                va = 'top'
             else:
-                E = 0.0
-            G = out['G'][idx]
-            vals = [Q, L, H, E, G]
-            maxv = max(1.0, max(abs(v) for v in vals))
-            # vertical positions (axes fraction) for arrows
-            y_positions = [0.85, 0.72, 0.59, 0.46, 0.33]
-            labels = ['Q*', 'L*', 'H', 'E', 'G']
-            colors = ['orange', 'magenta', 'green', 'blue', 'saddlebrown']
-            for k, v in enumerate(vals):
-                y = y_positions[k]
-                frac = 0.08 * (abs(v) / maxv)
-                if k in (0, 1, 4):
-                    # draw arrow pointing downwards (incoming into surface)
-                    start = (0.92, y)
-                    end = (0.92, y - frac)
-                    va = 'top'
-                else:
-                    # draw arrow pointing upwards
-                    start = (0.92, y)
-                    end = (0.92, y + frac)
-                    va = 'bottom'
-                ax.annotate('', xy=end, xytext=start, xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
-                # label and value
-                try:
-                    txt = f"{labels[k]} {v:+.0f} W/m2" if k != 0 else f"{labels[k]} {v:+.0f} W/m2"
-                    ax.text(0.80, y, txt, transform=ax.transAxes, ha='left', va=va, fontsize=9, color=colors[k])
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                # draw arrow pointing upwards
+                start = (0.92, y)
+                end = (0.92, y + frac)
+                va = 'bottom'
+            ax.annotate('', xy=end, xytext=start, xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
+            # label and value
+            txt = f"{labels[k]} {v:+.0f} W/m2" if k != 0 else f"{labels[k]} {v:+.0f} W/m2"
+            ax.text(0.80, y, txt, transform=ax.transAxes, ha='left', va=va, fontsize=9, color=colors[k])
 
     def update_tempseb(self, idx: int):
         # draw temperature profile and SEB arrows at given time index (index into out['times'])
@@ -1367,23 +1262,20 @@ class App(ctk.CTk):
             return
         outA = anim_data.get('A')
         outB = anim_data.get('B') if self.compare_var.get() else None
+        self.ax_temp.clear()
+        self.ax_temp.plot(outA['T_profiles'][idx] - 273.15, outA['z'], '-r', label='A')
+        if outB is not None:
+            self.ax_temp.plot(outB['T_profiles'][idx] - 273.15, outB['z'], '-b', label='B')
+        self.ax_temp.invert_yaxis()
+        self.ax_temp.set_xlabel('Temperature (Â°C)')
+        self.ax_temp.set_ylabel('Depth (m)')
+        # draw arrows for A on same axis (offset x slightly)
+        self.draw_seb_arrows(self.ax_temp, outA, idx)
+        if outB is not None:
+            # for B, draw arrows slightly left by translating transform
+            self.draw_seb_arrows(self.ax_temp, outB, idx)
         try:
-            self.ax_temp.clear()
-            self.ax_temp.plot(outA['T_profiles'][idx] - 273.15, outA['z'], '-r', label='A')
-            if outB is not None:
-                self.ax_temp.plot(outB['T_profiles'][idx] - 273.15, outB['z'], '-b', label='B')
-            self.ax_temp.invert_yaxis()
-            self.ax_temp.set_xlabel('Temperature (°C)')
-            self.ax_temp.set_ylabel('Depth (m)')
-            # draw arrows for A on same axis (offset x slightly)
-            self.draw_seb_arrows(self.ax_temp, outA, idx)
-            if outB is not None:
-                # for B, draw arrows slightly left by translating transform
-                self.draw_seb_arrows(self.ax_temp, outB, idx)
-            try:
-                self.canvas_temp.draw()
-            except Exception:
-                pass
+            self.canvas_temp.draw()
         except Exception:
             pass
 
@@ -1393,26 +1285,20 @@ class App(ctk.CTk):
             messagebox.showerror('Error', 'Run a simulation first')
             return
         self.temp_playing = not self.temp_playing
-        try:
-            self.temp_play_btn.configure(text='Stop' if self.temp_playing else 'Play')
-        except Exception:
-            pass
+        self.temp_play_btn.configure(text='Stop' if self.temp_playing else 'Play')
         if self.temp_playing:
             self.temp_play_step()
 
     def temp_play_step(self):
         # guard: stop if app closed or playback flag cleared
-        try:
-            if getattr(self, '_closed', False):
-                self.temp_playing = False
-                return
-            if not self.temp_playing:
-                return
-            if hasattr(self, 'winfo_exists') and not self.winfo_exists():
-                self.temp_playing = False
-                return
-        except Exception:
-            pass
+        if getattr(self, '_closed', False):
+            self.temp_playing = False
+            return
+        if not self.temp_playing:
+            return
+        if hasattr(self, 'winfo_exists') and not self.winfo_exists():
+            self.temp_playing = False
+            return
         anim_data = getattr(self, 'anim_data', None)
         if anim_data is None:
             self.temp_playing = False
@@ -1425,10 +1311,7 @@ class App(ctk.CTk):
         except Exception:
             cur = 0
         nxt = (cur + 1) % max(1, n)
-        try:
-            self.temp_slider.set(nxt)
-        except Exception:
-            pass
+        self.temp_slider.set(nxt)
         self.update_tempseb(nxt)
         delay = int(max(100, 1000 / max(0.001, float(self.speed_var.get() or 1.0))))
         try:
@@ -1445,10 +1328,7 @@ class App(ctk.CTk):
     def _run_thread(self):
         # mark running and update status (store internally only)
         self._running = True
-        try:
-            self._status_text = 'Running simulation...'
-        except Exception:
-            pass
+        self._status_text = 'Running simulation...'
         try:
             # inputs are validated when the user leaves each input box and saved
             # into self._params by _validate_and_store. Here we simply use those
@@ -1489,17 +1369,11 @@ class App(ctk.CTk):
             self.after(0, lambda: self._show_results(outA, outB, mA, mB))
             self.after(0, lambda: self.draw_anim_static())
             # configure temp slider to match number of time steps
-            try:
-                nsteps = len(outA['times'])
-                # configure CTkSlider range (from_ remains 0)
-                self.temp_slider.configure(to=max(1, nsteps - 1), number_of_steps=max(1, nsteps - 1))
-                self.temp_slider.set(0)
-                try:
-                    self.btn_start.configure(state='normal')
-                except Exception:
-                    pass
-            except Exception:
-                pass
+            nsteps = len(outA['times'])
+            # configure CTkSlider range (from_ remains 0)
+            self.temp_slider.configure(to=max(1, nsteps - 1), number_of_steps=max(1, nsteps - 1))
+            self.temp_slider.set(0)
+            self.btn_start.configure(state='normal')
             self.after(0, lambda: setattr(self, '_status_text', 'Simulation complete'))
         except Exception as exc:
             self.after(0, lambda: messagebox.showerror('Error', f'Simulation failed:\n{exc}'))
@@ -1514,96 +1388,57 @@ class App(ctk.CTk):
     def _on_closing(self):
         """Clean shutdown: cancel scheduled after callbacks and stop loops before destroying the window."""
         # hide any tooltip immediately to avoid orphaned Toplevels
-        try:
-            self._hide_material_tooltip()
-        except Exception:
-            pass
+        self._hide_material_tooltip()
         # stop loops
-        try:
-            self.animating = False
-        except Exception:
-            pass
-        try:
-            self.temp_playing = False
-        except Exception:
-            pass
+        self.animating = False
+        self.temp_playing = False
 
         # cancel scheduled after callbacks if present
-        try:
-            pid = getattr(self, '_preview_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-                self._preview_after_id = None
-        except Exception:
-            pass
-        try:
-            pid = getattr(self, '_poll_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-                self._poll_after_id = None
-        except Exception:
-            pass
-        try:
-            pid = getattr(self, '_anim_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-                self._anim_after_id = None
-        except Exception:
-            pass
-        try:
-            pid = getattr(self, '_temp_after_id', None)
-            if pid is not None:
-                try:
-                    self.after_cancel(pid)
-                except Exception:
-                    pass
-                self._temp_after_id = None
-        except Exception:
-            pass
+        pid = getattr(self, '_preview_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+            self._preview_after_id = None
+        pid = getattr(self, '_poll_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+            self._poll_after_id = None
+        pid = getattr(self, '_anim_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+            self._anim_after_id = None
+        pid = getattr(self, '_temp_after_id', None)
+        if pid is not None:
+            self.after_cancel(pid)
+            self._temp_after_id = None
 
         # attempt to cancel any remaining Tk 'after' callbacks (including CTk internals)
         try:
-            try:
-                info = self.tk.call('after', 'info')
-            except Exception:
-                info = None
-            if info:
-                # info can be a tuple of ids or a single string
-                ids = []
-                if isinstance(info, (list, tuple)):
-                    ids = list(info)
-                else:
-                    # string with whitespace-separated ids
-                    try:
-                        ids = str(info).split()
-                    except Exception:
-                        ids = [info]
-                for aid in ids:
-                    try:
-                        self.after_cancel(aid)
-                    except Exception:
-                        # ignore failures on cancelling internal callbacks
-                        pass
+            info = self.tk.call('after', 'info')
         except Exception:
-            pass
+            info = None
+        if info:
+            # info can be a tuple of ids or a single string
+            ids = []
+            if isinstance(info, (list, tuple)):
+                ids = list(info)
+            else:
+                # string with whitespace-separated ids
+                try:
+                    ids = str(info).split()
+                except Exception:
+                    ids = [info]
+            for aid in ids:
+                try:
+                    self.after_cancel(aid)
+                except Exception:
+                    # ignore failures on cancelling internal callbacks
+                    pass
 
         # attempt to destroy the window (ends mainloop)
         try:
             self.destroy()
         except Exception:
-            try:
-                self.quit()
-            except Exception:
-                pass
+            self.quit()
 
     def _show_results(self, outA, outB: Optional[dict], mA: Optional[object] = None, mB: Optional[object] = None):
         # populate the results axes (6 rows)
@@ -1613,7 +1448,7 @@ class App(ctk.CTk):
         self.axs_res[0].plot(t, outA['Ts'] - 273.15, color='r', label='A')
         if outB is not None:
             self.axs_res[0].plot(t, outB['Ts'] - 273.15, color='b', linestyle='--', label='B')
-        self.axs_res[0].set_ylabel('T_surf (°C)')
+        self.axs_res[0].set_ylabel('T_surf (Â°C)')
         self.axs_res[0].legend()
 
         self.axs_res[1].plot(t, outA['Qstar'], color='orange')
@@ -1646,13 +1481,10 @@ class App(ctk.CTk):
                 self.axs_res[4].plot(t, eB, color='blue', linestyle='--')
             self.axs_res[4].set_ylabel('E (W/m2)')
         except Exception:
-            try:
-                self.axs_res[4].plot(t, outA.get('E', np.zeros_like(outA['times'])), color='blue')
-                if outB is not None:
-                    self.axs_res[4].plot(t, outB.get('E', np.zeros_like(outA['times'])), color='blue', linestyle='--')
-                self.axs_res[4].set_ylabel('E (W/m2)')
-            except Exception:
-                pass
+            self.axs_res[4].plot(t, outA.get('E', np.zeros_like(outA['times'])), color='blue')
+            if outB is not None:
+                self.axs_res[4].plot(t, outB.get('E', np.zeros_like(outA['times'])), color='blue', linestyle='--')
+            self.axs_res[4].set_ylabel('E (W/m2)')
 
         self.axs_res[5].plot(t, outA['G'], color='saddlebrown')
         if outB is not None:
@@ -1660,48 +1492,35 @@ class App(ctk.CTk):
         self.axs_res[5].set_ylabel('G (W/m2)')
         self.axs_res[5].set_xlabel('Time (h)')
 
-        try:
-            self.canvas_res.draw()
-        except Exception:
-            pass
+        self.canvas_res.draw()
 
         # populate compare tab if present
-        try:
-            axs_comp = getattr(self, 'axs_comp', None)
-            can_comp = getattr(self, 'canvas_comp', None)
-            if outB is not None and axs_comp is not None:
-                for a in axs_comp:
-                    a.clear()
-                # difference B - A
-                axs_comp[0].plot(t, outB['Ts'] - outA['Ts'], color='purple')
-                axs_comp[0].set_ylabel('ΔT_s (°C)')
-                axs_comp[1].plot(t, outB['Qstar'] - outA['Qstar'], color='orange')
-                axs_comp[1].set_ylabel('ΔK* (W/m2)')
-                axs_comp[2].plot(t, outB['L'] - outA['L'], color='magenta')
-                axs_comp[2].set_ylabel('ΔL* (W/m2)')
-                axs_comp[3].plot(t, outB['H'] - outA['H'], color='green')
-                axs_comp[3].set_ylabel('ΔH (W/m2)')
-                axs_comp[4].plot(t, outB['E'] - outA['E'], color='blue')
-                axs_comp[4].set_ylabel('ΔE (W/m2)')
-                axs_comp[5].plot(t, outB['G'] - outA['G'], color='saddlebrown')
-                axs_comp[5].set_ylabel('ΔG (W/m2)')
-                axs_comp[5].set_xlabel('Time (h)')
-                try:
-                    if can_comp is not None:
-                        can_comp.draw()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        axs_comp = getattr(self, 'axs_comp', None)
+        can_comp = getattr(self, 'canvas_comp', None)
+        if outB is not None and axs_comp is not None:
+            for a in axs_comp:
+                a.clear()
+            # difference B - A
+            axs_comp[0].plot(t, outB['Ts'] - outA['Ts'], color='purple')
+            axs_comp[0].set_ylabel('Î”T_s (Â°C)')
+            axs_comp[1].plot(t, outB['Qstar'] - outA['Qstar'], color='orange')
+            axs_comp[1].set_ylabel('Î”K* (W/m2)')
+            axs_comp[2].plot(t, outB['L'] - outA['L'], color='magenta')
+            axs_comp[2].set_ylabel('Î”L* (W/m2)')
+            axs_comp[3].plot(t, outB['H'] - outA['H'], color='green')
+            axs_comp[3].set_ylabel('Î”H (W/m2)')
+            axs_comp[4].plot(t, outB['E'] - outA['E'], color='blue')
+            axs_comp[4].set_ylabel('Î”E (W/m2)')
+            axs_comp[5].plot(t, outB['G'] - outA['G'], color='saddlebrown')
+            axs_comp[5].set_ylabel('Î”G (W/m2)')
+            axs_comp[5].set_xlabel('Time (h)')
+            if can_comp is not None:
+                can_comp.draw()
 
         # update Temp & SEB panel (time index 0 default)
-        try:
-            self.update_tempseb(0)
-        except Exception:
-            pass
+        self.update_tempseb(0)
 
 
 if __name__ == '__main__':
     app = App()
     app.mainloop()
-
