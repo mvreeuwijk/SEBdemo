@@ -2,3 +2,5 @@ numpy
 matplotlib
 Pillow
 scipy
+mkdocs
+mkdocs-material
