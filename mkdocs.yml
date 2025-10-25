@@ -1,7 +1,7 @@
 # Project information
 site_name: 'SEBdemo'
 site_description: 'Documentation for the SEBdemo 1D surface energy balance model'
-site_author: 'The SEBdemo Team'
+site_author: 'Maarten van Reeuwijk'
 site_url: 'https://SEBdemo.github.io/SEBdemo'
 
 # Repository
