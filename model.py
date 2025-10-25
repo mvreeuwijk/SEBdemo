@@ -25,21 +25,20 @@ class Material:
 
 # Module-level defaults so model can run standalone without importing `app`.
 DEFAULTS = {
-    'thickness': 1.0,   # thickness of layer A in m
-    'Sb': 1000.0,       # peak shortwave in W/m2
-    'trise': 7*hour,    # sunrise time in s
-    'tset': 21*hour,    # sunset time in s
-    'Ldown': 350.0,     # downwelling longwave in W/m2
-    'h': 10.0,          # heat-transfer coefficient in W/m2/K
-    'Ta_mean': 293.15,  # mean air temperature in K
-    'Ta_amp': 5.0,      # amplitude of air temperature variation in K
-    'beta': 0.5,        # Bowen ratio
-    'tmax': 48*hour,    # maximum simulation time in s
-    'dt': 0.5*hour,     # time step for output in s
-    # physical constants & solver defaults
-    'sigma': 5.670374419e-8,  # Stefan-Boltzmann constant
-    'Nz': 100,                 # default number of vertical cells
-    'T0': 293.15,              # initial soil temperature (K)
+    'thickness': 1.0,           # layer thickness in m
+    'T0': 293.15,               # initial soil temperature (K)
+    'Sb': 1000.0,               # peak shortwave in W/m2
+    'trise': 7*hour,            # sunrise time in s
+    'tset': 21*hour,            # sunset time in s
+    'Ldown': 350.0,             # downwelling longwave in W/m2
+    'sigma': 5.670374419e-8,    # Stefan-Boltzmann constant
+    'Ta_mean': 293.15,          # mean air temperature in K
+    'Ta_amp': 5.0,              # amplitude of air temperature variation in K
+    'h': 10.0,                  # heat-transfer coefficient in W/m2/K
+    'beta': 0.5,                # Bowen ratio
+    'tmax': 48*hour,            # simulation time in s
+    'dt': 0.5*hour,             # time step for output in s
+    'Nz': 100,                  # default number of vertical cells
 }
 
 def load_material(key: str, path: str = "materials.json") -> Material:
