@@ -9,7 +9,7 @@ env:
   PYTHON_VERSION: '3.11'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -17,6 +17,7 @@ jobs:
   build-and-deploy:
     name: Build site and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -50,14 +51,37 @@ jobs:
           python --version
           pip --version
           which mkdocs || true
+          echo "Listing repo root:"
+          ls -la
 
-      - name: Build MkDocs site
-        run: python -m mkdocs build --strict --clean
+      - name: Prepare site directory (mkdocs or docs fallback)
+        id: prepare_site
+        run: |
+          set -e
+          BUILD_DIR=site
+          # Prefer building with mkdocs if config present
+          if [ -f mkdocs.yml ] || [ -f mkdocs.yaml ]; then
+            echo "mkdocs config found; building site with mkdocs"
+            python -m mkdocs build --strict --clean
+          elif [ -d docs ]; then
+            echo "No mkdocs config found — copying docs/ -> site/ to publish raw markdown/html"
+            rm -rf site
+            mkdir -p site
+            cp -a docs/. site/
+          elif [ -d site ]; then
+            echo "Using existing site/ directory"
+          else
+            echo "No mkdocs config, no docs/ and no site/ directory found — aborting"
+            exit 1
+          fi
+          echo "Built/picked site directory:"
+          ls -la "${BUILD_DIR}"
+          echo "publish_dir=${BUILD_DIR}" >> $GITHUB_OUTPUT
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./site
+          path: ${{ steps.prepare_site.outputs.publish_dir }}
 
   deploy:
     name: Deploy to GitHub Pages
