@@ -18,6 +18,7 @@ import threading
 from pathlib import Path
 from tkinter import messagebox
 import tkinter as tk
+import tkinter.font as tkfont
 from typing import Optional, Any, Mapping, cast
 
 import matplotlib.pyplot as plt
@@ -29,6 +30,8 @@ import customtkinter as ctk
 import logging
 import traceback
 import sys
+import re
+import webbrowser
 
 from model import load_material, run_simulation, diurnal_forcing, DEFAULTS as MODEL_DEFAULTS, hour
 
@@ -53,8 +56,6 @@ class App(ctk.CTk):
     GUIDEFAULTS = {
         'compare': False,
         'speed': 1.0,
-        # forcing time resolution (seconds) used to generate high-res forcing
-        # passed to the model when running (default: 60 s)
         'forcing_dt': 60.0,
     }
 
@@ -89,18 +90,21 @@ class App(ctk.CTk):
         self.tabview.add('Animation')
         self.tabview.add('Results')
         self.tabview.add('Term by term')
+        self.tabview.add('About')
 
         # references to tab frames
         self.tab_inputs = self.tabview.tab('Inputs')
         self.tab_animation = self.tabview.tab('Animation')
         self.tab_results = self.tabview.tab('Results')
         self.tab_tempseb = self.tabview.tab('Term by term')
+        self.tab_about = self.tabview.tab('About')
 
         # build tab content
         self._build_inputs_tab()
         self._build_results_tab()
         self._build_tempseb_tab()
         self._build_animation_tab()
+        self._build_about_tab()
 
         # track tab changes: run simulation automatically when leaving Inputs tab
         try:
@@ -128,11 +132,9 @@ class App(ctk.CTk):
         frm.grid_columnconfigure(2, weight=1, minsize=120, uniform='param')
 
         # capture the inputs frame background color (used to color Matplotlib figs)
-        try:
-            self._input_frame_bg = frm.cget('fg_color')
-        except Exception:
-            self._input_frame_bg = frm.cget('bg')
- 
+        self._input_frame_bg = self._mpl_color_from_ctk(frm.cget('bg_color'))
+
+
         # Top row: Material selectors and compare checkbox above Material B
         frameA = ctk.CTkFrame(frm, fg_color='transparent')
         frameA.grid(row=1, column=0, sticky='nsew', padx=6, pady=(6, 2))
@@ -316,26 +318,16 @@ class App(ctk.CTk):
 
         # Preview figures
         self.fig_Ta = Figure(figsize=(8, 2))
+        self.fig_Ta.patch.set_facecolor(self._input_frame_bg)
         self.canvas_Ta = FigureCanvasTkAgg(self.fig_Ta, master=frm)
         self.canvas_Ta.get_tk_widget().grid(row=6, column=0, columnspan=3, padx=8, pady=(8, 4), sticky='nsew')
         self.ax_Ta = self.fig_Ta.subplots(1, 1)
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                self.fig_Ta.patch.set_facecolor(mcol)
-                for a in self.fig_Ta.axes:
-                    a.set_facecolor(mcol)
 
         self.fig_K = Figure(figsize=(8, 2))
+        self.fig_K.patch.set_facecolor(self._input_frame_bg)
         self.canvas_K = FigureCanvasTkAgg(self.fig_K, master=frm)
         self.canvas_K.get_tk_widget().grid(row=7, column=0, columnspan=3, padx=8, pady=(4, 8), sticky='nsew')
         self.ax_K = self.fig_K.subplots(1, 1)
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                self.fig_K.patch.set_facecolor(mcol)
-                for a in self.fig_K.axes:
-                    a.set_facecolor(mcol)
 
         # initial Inputs-tab state: enable/disable compare controls and
         # install preview traces so changing inputs updates the preview.
@@ -422,10 +414,7 @@ class App(ctk.CTk):
         # Results: create a 2x2 grid. When only one material is present we use
         # the left column; when comparing we fill both columns.
         self.fig_res = Figure(figsize=(8, 9))
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                self.fig_res.patch.set_facecolor(mcol)
+        self.fig_res.patch.set_facecolor(self._input_frame_bg)
         self.canvas_res = FigureCanvasTkAgg(self.fig_res, master=self.tab_results)
         self.canvas_res.get_tk_widget().pack(fill='both', expand=True)
         # 2 rows x 2 cols, keep as 2D array for easy indexing
@@ -436,14 +425,10 @@ class App(ctk.CTk):
         # small Temp profile figure exists for programmatic use but is not
         # shown in the UI (Term-by-term grid is the visible summary)
         self.fig_temp = Figure(figsize=(6, 3))
+        self.fig_temp.patch.set_facecolor(self._input_frame_bg)
         self.canvas_temp = FigureCanvasTkAgg(self.fig_temp, master=self.tab_tempseb)
         self.ax_temp = self.fig_temp.subplots(1, 1)
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                self.fig_temp.patch.set_facecolor(mcol)
-                for a in self.fig_temp.axes:
-                    a.set_facecolor(mcol)
+
 
         # time slider for Temp & SEB (inactive until a run populates anim_data)
         self.temp_time_var = ctk.IntVar(value=0)
@@ -459,10 +444,7 @@ class App(ctk.CTk):
         # Use a 3x3 grid so each panel can show both Material A and B together
         # (with a legend) as requested.
         self.fig_temp_res = Figure(figsize=(9, 9))
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                self.fig_temp_res.patch.set_facecolor(mcol)
+        self.fig_temp_res.patch.set_facecolor(self._input_frame_bg)
         self.canvas_temp_res = FigureCanvasTkAgg(self.fig_temp_res, master=self.tab_tempseb)
         self.canvas_temp_res.get_tk_widget().pack(fill='both', expand=True)
         # term-by-term comparison: 3 rows x 2 cols. We'll plot the main
@@ -473,13 +455,7 @@ class App(ctk.CTk):
     def _build_animation_tab(self):
         """Create the Animation tab figure and controls."""
         self.fig_anim = Figure(figsize=(8, 3))
-        if getattr(self, '_input_frame_bg', None):
-            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
-            if mcol is not None:
-                try:
-                    self.fig_anim.patch.set_facecolor(mcol)
-                except Exception:
-                    pass
+        self.fig_anim.patch.set_facecolor(self._input_frame_bg)
         self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
         self.canvas_anim.get_tk_widget().pack(side='left', fill='both', expand=True)
 
@@ -503,6 +479,199 @@ class App(ctk.CTk):
         self.anim_idx = 0
         self.anim_data = None
         self.axes_anim = tuple()
+
+    def _build_about_tab(self):
+        """Create the About tab and display contents of about.md.
+
+        This implements a small, dependency-free markdown renderer that
+        handles headings (#), unordered lists (-), and inline **bold** and
+        *italic* markup. The Text widget background is set to match the
+        app input frame color (converted via _mpl_color_from_ctk) for a
+        consistent appearance with the rest of the UI.
+        """
+        frm = ctk.CTkFrame(self.tab_about)
+        try:
+            if getattr(self, '_input_frame_bg', None) is not None:
+                frm.configure(fg_color=self._input_frame_bg)
+        except Exception:
+            pass
+        frm.pack(fill='both', expand=True, padx=8, pady=8)
+
+    
+        # Load about.md from repository root
+        try:
+            p = Path(__file__).parent / 'about.md'
+            content = p.read_text(encoding='utf-8')
+        except Exception:
+            content = 'About information not available.'
+
+        # Compute tkinter background color from CTk color (if available)
+        
+        tk_bg = frm.cget('bg_color')
+
+        # Prepare fonts
+        try:
+            base_font = tkfont.nametofont('TkDefaultFont')
+        except Exception:
+            base_font = tkfont.Font()
+        body_size = max(10, int(base_font.cget('size')) + 2)
+        h1_size = max(12, int(base_font.cget('size')) + 4)
+
+        # If CTkTextbox exists we could use it, but to keep styling consistent
+        # we'll render the markdown into a stack of CTkLabel widgets. This
+        # avoids dealing with Text tags and guarantees CTk-based appearance.
+        # determine readable text color against background (fallback to CTk default)
+        text_color = None
+        try:
+            if tk_bg and isinstance(tk_bg, str) and tk_bg.startswith('#') and len(tk_bg) >= 7:
+                rr = int(tk_bg[1:3], 16) / 255.0
+                gg = int(tk_bg[3:5], 16) / 255.0
+                bb = int(tk_bg[5:7], 16) / 255.0
+                lum = 0.299 * rr + 0.587 * gg + 0.114 * bb
+                text_color = 'white' if lum < 0.5 else 'black'
+        except Exception:
+            text_color = None
+
+        # create font objects for labels and links
+        body_font = tkfont.Font(font=base_font)
+        try:
+            body_font.configure(size=body_size)
+        except Exception:
+            pass
+        h1_font = tkfont.Font(font=base_font)
+        try:
+            h1_font.configure(size=h1_size, weight='bold')
+        except Exception:
+            pass
+        # link font will be a simple tuple for CTkLabel; underline may not be
+        # widely supported so we use blue text + hand cursor for affordance.
+
+        # Render about.md into a single, read-only Tk Text widget so we get
+        # reliable wrapping and layout across platforms. We keep inline bold
+        # and clickable links by using text tags.
+        link_re = re.compile(
+            r'\[([^\]]+)\]\(([^)]+)\)|'      # [text](url)
+            r'<(https?://[^>]+)>|'                # <https://...>
+            r'<([\w\.-]+@[\w\.-]+\.[\w]+)>|' # <user@example.org>
+            r'(https?://\S+)|'                   # bare https://...
+            r'([\w\.-]+@[\w\.-]+\.[\w]+)'
+        )
+
+        # create a read-only Text widget
+        txt = tk.Text(frm, wrap='word', bd=0, relief='flat')
+        # background color should match the CTk frame if available
+        try:
+            if tk_bg:
+                txt.configure(bg=tk_bg)
+        except Exception:
+            pass
+
+        # prepare fonts and tags
+        bold_font = tkfont.Font(font=body_font)
+        try:
+            bold_font.configure(weight='bold')
+        except Exception:
+            pass
+
+        txt.tag_configure('h1', font=h1_font)
+        txt.tag_configure('bold', font=bold_font)
+        txt.tag_configure('para', font=body_font)
+        txt.tag_configure('bullet', font=body_font)
+
+        link_count = 0
+
+        def insert_with_bold(target, s, tag='para'):
+            # simple **bold** scanner
+            i = 0
+            while i < len(s):
+                if s.startswith('**', i):
+                    j = s.find('**', i + 2)
+                    if j != -1:
+                        inner = s[i+2:j]
+                        if inner:
+                            target.insert('end', inner, ('bold', tag))
+                        i = j + 2
+                        continue
+                # no bold start -> insert until next ** or end
+                next_pos = s.find('**', i)
+                if next_pos == -1:
+                    target.insert('end', s[i:], (tag,))
+                    break
+                else:
+                    target.insert('end', s[i:next_pos], (tag,))
+                    i = next_pos
+
+        for ln in content.splitlines():
+            ln_stripped = ln.strip()
+            if ln_stripped.startswith('# '):
+                txt.insert('end', ln_stripped[2:].strip() + '\n\n', ('h1',))
+                continue
+            if ln_stripped == '':
+                txt.insert('end', '\n')
+                continue
+
+            # lists
+            if ln_stripped.startswith('- '):
+                item = ln_stripped[2:].strip()
+                txt.insert('end', '• ', ('bullet',))
+                # process inline links and bold inside item
+                pos = 0
+                for m in link_re.finditer(item):
+                    if m.start() > pos:
+                        insert_with_bold(txt, item[pos:m.start()])
+                    if m.group(1):
+                        label_text = m.group(1); url = m.group(2)
+                    elif m.group(3):
+                        label_text = m.group(3); url = m.group(3)
+                    elif m.group(4):
+                        label_text = m.group(4); url = f'mailto:{m.group(4)}'
+                    elif m.group(5):
+                        label_text = m.group(5); url = m.group(5)
+                    else:
+                        label_text = m.group(6); url = f'mailto:{m.group(6)}'
+                    tag_name = f'link{link_count}'
+                    txt.insert('end', label_text, (tag_name,))
+                    # configure tag and binding
+                    txt.tag_configure(tag_name, foreground='blue', underline=True)
+                    txt.tag_bind(tag_name, '<Button-1>', lambda e, u=url: webbrowser.open(u))
+                    link_count += 1
+                    pos = m.end()
+                if pos < len(item):
+                    insert_with_bold(txt, item[pos:])
+                txt.insert('end', '\n')
+                continue
+
+            # non-list line: handle links and inline bold
+            pos = 0
+            for m in link_re.finditer(ln):
+                if m.start() > pos:
+                    insert_with_bold(txt, ln[pos:m.start()])
+                if m.group(1):
+                    label_text = m.group(1); url = m.group(2)
+                elif m.group(3):
+                    label_text = m.group(3); url = m.group(3)
+                elif m.group(4):
+                    label_text = m.group(4); url = f'mailto:{m.group(4)}'
+                elif m.group(5):
+                    label_text = m.group(5); url = m.group(5)
+                else:
+                    label_text = m.group(6); url = f'mailto:{m.group(6)}'
+                tag_name = f'link{link_count}'
+                txt.insert('end', label_text, (tag_name,))
+                txt.tag_configure(tag_name, foreground='blue', underline=True)
+                txt.tag_bind(tag_name, '<Button-1>', lambda e, u=url: webbrowser.open(u))
+                link_count += 1
+                pos = m.end()
+            if pos < len(ln):
+                insert_with_bold(txt, ln[pos:])
+            txt.insert('end', '\n')
+
+        # make readonly
+        try:
+            txt.configure(state='disabled')
+        except Exception:
+            pass
+        txt.pack(fill='both', expand=True, padx=4, pady=4)
 
     def _poll_tab(self):
         try:
@@ -553,33 +722,10 @@ class App(ctk.CTk):
 
         # Ta figure
         self.ax_Ta.clear()
-        self.ax_Ta.plot(t / hour, TaC, color='tab:blue', label='Ta (Â°C)')
+        self.ax_Ta.plot(t / hour, TaC, color='tab:blue', label='Ta (°C)')
         self.ax_Ta.set_xlabel('Time (h)')
-        self.ax_Ta.set_ylabel('Air temp (Â°C)')
+        self.ax_Ta.set_ylabel('Air temp (°C)')
         self.ax_Ta.set_xlim(0, 24)
-        # apply background and spine styling to match app
-        bg = getattr(self, '_input_frame_bg', None)
-        if bg is not None:
-            mcol = self._mpl_color_from_ctk(bg)
-            if mcol is not None:
-                self.fig_Ta.patch.set_facecolor(mcol)
-                self.ax_Ta.set_facecolor(mcol)
-                # compute perceived luminance for contrast
-                dark = False
-                try:
-                    if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
-                        lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
-                        dark = lum < 0.5
-                except Exception:
-                    dark = False
-                spcol = 'white' if dark else 'black'
-                for s in self.ax_Ta.spines.values():
-                    s.set_color(spcol)
-                    s.set_linewidth(0.8)
-                # ticks and labels
-                self.ax_Ta.tick_params(colors=spcol)
-                self.ax_Ta.xaxis.label.set_color(spcol)
-                self.ax_Ta.yaxis.label.set_color(spcol)
         self.ax_Ta.grid(True, linestyle=':', alpha=0.5)
         self.ax_Ta.legend(loc='upper right')
         # avoid tight_layout clipping the right spine
@@ -595,26 +741,6 @@ class App(ctk.CTk):
         self.ax_K.set_xlabel('Time (h)')
         self.ax_K.set_ylabel('Flux (W/m2)')
         self.ax_K.set_xlim(0, 24)
-        bg = getattr(self, '_input_frame_bg', None)
-        if bg is not None:
-            mcol = self._mpl_color_from_ctk(bg)
-            if mcol is not None:
-                self.fig_K.patch.set_facecolor(mcol)
-                self.ax_K.set_facecolor(mcol)
-                dark = False
-                try:
-                    if isinstance(mcol, (list, tuple)) and len(mcol) >= 3:
-                        lum = 0.299 * float(mcol[0]) + 0.587 * float(mcol[1]) + 0.114 * float(mcol[2])
-                        dark = lum < 0.5
-                except Exception:
-                    dark = False
-                spcol = 'white' if dark else 'black'
-                for s in self.ax_K.spines.values():
-                    s.set_color(spcol)
-                    s.set_linewidth(0.8)
-                self.ax_K.tick_params(colors=spcol)
-                self.ax_K.xaxis.label.set_color(spcol)
-                self.ax_K.yaxis.label.set_color(spcol)
         self.ax_K.grid(True, linestyle=':', alpha=0.5)
         self.ax_K.legend(loc='upper right')
         self.fig_K.subplots_adjust(right=0.98)
@@ -1016,21 +1142,6 @@ class App(ctk.CTk):
         # pointer is outside both -> hide
         self._hide_material_tooltip()
 
-    # helper: apply app background color to a matplotlib figure and its axes
-    def _apply_fig_bg(self, fig):
-        bg = getattr(self, '_input_frame_bg', None)
-        if not bg:
-            try:
-                bg = self.cget('bg')
-            except Exception:
-                bg = None
-        if not bg:
-            return
-        mcol = self._mpl_color_from_ctk(bg)
-        fig.patch.set_facecolor(mcol)
-        for ax in getattr(fig, 'axes', []):
-            ax.set_facecolor(mcol)
-
     def _mpl_color_from_ctk(self, c):
         """Convert a CTk color (hex string or tuple) to an MPL-compatible color.
 
@@ -1039,9 +1150,24 @@ class App(ctk.CTk):
         """
         if c is None:
             return None
-        # already acceptable (named color or hex)
+        # if it's a string, try to convert Tk-style color names (e.g. 'gray86')
+        # to an RGB tuple Matplotlib accepts. If it's a hex string, return it
+        # unchanged. Fall back to returning the original input on failure.
         if isinstance(c, str):
-            return c
+            try:
+                # hex strings are already acceptable for Matplotlib
+                if c.startswith('#'):
+                    return c
+                # try to resolve the color via the underlying Tk color parser
+                # winfo_rgb returns 0..65535 values
+                rgb16 = self.winfo_rgb(c)
+                r = rgb16[0] / 65535.0
+                g = rgb16[1] / 65535.0
+                b = rgb16[2] / 65535.0
+                return (r, g, b)
+            except Exception:
+                # fallback: return original string (may be a matplotlib name)
+                return c
         # tuple-like: try to coerce to an RGB or RGBA tuple of floats in 0..1
         if isinstance(c, tuple) and all(isinstance(x, (int, float)) for x in c):
             vals = [float(x) / 255.0 if (isinstance(x, (int,)) and x > 1) else float(x) for x in c]
@@ -1506,14 +1632,28 @@ class App(ctk.CTk):
             self.quit()
 
     def _show_results(self, outA, outB: Optional[dict], mA: Optional[object] = None, mB: Optional[object] = None):
-        # populate the results axes as either 1-column (left) or 2-column (A/B)
-        # layout: top = surface temperature, bottom = energy balance (K*, L*, H, E, G)
-        t = outA['t'] / hour
-
-        # prepare results axes layout: use full width (2 rows x 1 col) when
-        # only one material is present, otherwise use 2x2 (A vs B)
+        # split plotting into dedicated tab plotters for clarity
         try:
-            # clear previous axes and recreate appropriate layout
+            self._plot_results_tab(outA, outB, mA, mB)
+        except Exception:
+            # keep the UI responsive on exceptions
+            logging.getLogger(__name__).exception('Failed to plot Results tab')
+
+        try:
+            self._plot_term_by_term(outA, outB, mA, mB)
+        except Exception:
+            logging.getLogger(__name__).exception('Failed to plot Term-by-term tab')
+
+        # update Temp & SEB panel (time index 0 default)
+        try:
+            self.update_tempseb(0)
+        except Exception:
+            pass
+
+    def _plot_results_tab(self, outA, outB: Optional[dict], mA: Optional[object] = None, mB: Optional[object] = None):
+        """Populate the Results tab (2x1 or 2x2 layout)."""
+        t = outA['t'] / hour
+        try:
             try:
                 self.fig_res.clf()
             except Exception:
@@ -1523,7 +1663,6 @@ class App(ctk.CTk):
             else:
                 self.axs_res = self.fig_res.subplots(2, 2, squeeze=False)
         except Exception:
-            # if that fails, keep existing axes
             pass
 
         def plot_energy(ax, out, mat_obj):
@@ -1531,7 +1670,6 @@ class App(ctk.CTk):
             ax.plot(t, out['Kstar'], color='orange', label='K*')
             ax.plot(t, out['Lstar'], color='magenta', label='L*')
             ax.plot(t, out['H'], color='green', label='H')
-            # E only if material allows evaporation
             if self._mat_allows_evap(mat_obj):
                 ax.plot(t, out['E'], color='blue', label='E')
             else:
@@ -1553,40 +1691,35 @@ class App(ctk.CTk):
 
         def plot_ts(ax, out, title=None):
             ax.clear()
-            ax.plot(t, out['Ts'] - 273.15, color='r')
-            ax.set_ylabel('T_surf (°C)')
+            # plot surface temperature (Ts)
+            ax.plot(t, out['Ta'] - 273.15, color='k', label='Ta')
+            ax.plot(t, out['Ts'] - 273.15, color='r', label='Ts')
+            ax.set_ylabel('T (°C)')
             ax.set_xlabel('Time (h)')
             if title:
                 ax.set_title(title)
+            ax.legend(loc='upper right', fontsize='small')
 
-        # ensure axes exist
         try:
             axs = self.axs_res
         except Exception:
-            # fallback: old single-column layout
             return
 
-        # If outB is present, create 2x2 filled layout; otherwise use left column
         if outB is None:
-            # hide right column
             for j in (0, 1):
                 try:
                     axs[j][1].clear(); axs[j][1].set_visible(False)
                 except Exception:
                     pass
-            # top-left: Ts A
             matA_name = _mat_title(mA, self.matA.get() if getattr(self, 'matA', None) is not None else 'Material A')
             plot_ts(axs[0][0], outA, title=matA_name)
-            # bottom-left: energy A
             plot_energy(axs[1][0], outA, mA)
         else:
-            # ensure both columns visible
             for j in (0, 1):
                 try:
                     axs[j][1].set_visible(True)
                 except Exception:
                     pass
-            # left column = A, right column = B
             matA_name = _mat_title(mA, self.matA.get() if getattr(self, 'matA', None) is not None else 'Material A')
             matB_name = _mat_title(mB, self.matB.get() if getattr(self, 'matB', None) is not None else 'Material B')
             plot_ts(axs[0][0], outA, title=matA_name)
@@ -1594,203 +1727,163 @@ class App(ctk.CTk):
             plot_energy(axs[1][0], outA, mA)
             plot_energy(axs[1][1], outB, mB)
 
-            # Ensure vertical axes match between A and B for easier comparison.
-            try:
-                # Surface temperature (convert to °C for limits)
-                tsA = np.asarray(outA.get('Ts', [])) - 273.15
-                tsB = np.asarray(outB.get('Ts', [])) - 273.15
-                if tsA.size and tsB.size:
-                    ymin = float(np.nanmin([np.nanmin(tsA), np.nanmin(tsB)]))
-                    ymax = float(np.nanmax([np.nanmax(tsA), np.nanmax(tsB)]))
-                    if ymax == ymin:
-                        pad = 0.5
-                    else:
-                        pad = 0.05 * (ymax - ymin)
-                    for a in (axs[0][0], axs[0][1]):
-                        try:
-                            a.set_ylim(ymin - pad, ymax + pad)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            tsA = np.asarray(outA.get('Ts', [])) - 273.15
+            tsB = np.asarray(outB.get('Ts', [])) - 273.15
+            if tsA.size and tsB.size:
+                ymin = float(np.nanmin([np.nanmin(tsA), np.nanmin(tsB)]))
+                ymax = float(np.nanmax([np.nanmax(tsA), np.nanmax(tsB)]))
+                if ymax == ymin:
+                    pad = 0.5
+                else:
+                    pad = 0.05 * (ymax - ymin)
+                for a in (axs[0][0], axs[0][1]):
+                    a.set_ylim(ymin - pad, ymax + pad)
 
-            try:
-                # Energy panel: include Kstar, Lstar, H, E (respecting evap), G
-                def _energy_bounds(o, mat_obj):
-                    tarr = o.get('t', o.get('times', None)) or []
-                    if len(tarr) == 0:
-                        return None
-                    K = np.asarray(o.get('Kstar', np.zeros_like(tarr)))
-                    L = np.asarray(o.get('Lstar', np.zeros_like(tarr)))
-                    H = np.asarray(o.get('H', np.zeros_like(tarr)))
-                    E = np.asarray(o.get('E', np.zeros_like(tarr)))
-                    if not self._mat_allows_evap(mat_obj):
-                        E = np.zeros_like(E)
-                    G = np.asarray(o.get('G', np.zeros_like(tarr)))
-                    allv = np.concatenate([K, L, H, E, G]) if any(v.size for v in (K, L, H, E, G)) else np.array([0.0])
-                    return float(np.nanmin(allv)), float(np.nanmax(allv))
+            def _energy_bounds(o, mat_obj):
+                tarr = o.get('t', o.get('times', None)) or []
+                if len(tarr) == 0:
+                    return None
+                K = np.asarray(o.get('Kstar', np.zeros_like(tarr)))
+                L = np.asarray(o.get('Lstar', np.zeros_like(tarr)))
+                H = np.asarray(o.get('H', np.zeros_like(tarr)))
+                E = np.asarray(o.get('E', np.zeros_like(tarr)))
+                if not self._mat_allows_evap(mat_obj):
+                    E = np.zeros_like(E)
+                G = np.asarray(o.get('G', np.zeros_like(tarr)))
+                allv = np.concatenate([K, L, H, E, G]) if any(v.size for v in (K, L, H, E, G)) else np.array([0.0])
+                return float(np.nanmin(allv)), float(np.nanmax(allv))
 
-                bA = _energy_bounds(outA, mA)
-                bB = _energy_bounds(outB, mB)
-                if bA is not None and bB is not None:
-                    ymin = min(bA[0], bB[0])
-                    ymax = max(bA[1], bB[1])
-                    if ymax == ymin:
-                        pad = 1.0
-                    else:
-                        pad = 0.05 * (ymax - ymin)
-                    for a in (axs[1][0], axs[1][1]):
-                        try:
-                            a.set_ylim(ymin - pad, ymax + pad)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
+            bA = _energy_bounds(outA, mA)
+            bB = _energy_bounds(outB, mB)
+            if bA is not None and bB is not None:
+                ymin = min(bA[0], bB[0])
+                ymax = max(bA[1], bB[1])
+                if ymax == ymin:
+                    pad = 1.0
+                else:
+                    pad = 0.05 * (ymax - ymin)
+                for a in (axs[1][0], axs[1][1]):
+                    a.set_ylim(ymin - pad, ymax + pad)
         try:
             self.canvas_res.draw()
         except Exception:
             pass
 
-        # also populate the Term-by-term copy if present (3x2 grid). Each
-        # subplot will show both material A and B (when available) with a
-        # legend. The layout uses the first two rows for the core terms and
-        # the third row for some derived comparisons.
+    def _plot_term_by_term(self, outA, outB: Optional[dict], mA: Optional[object] = None, mB: Optional[object] = None):
+        """Populate the Term-by-term (Temp & SEB) tab copy (3x2 grid)."""
         axs_tr = getattr(self, 'axs_temp_res', None)
         can_tr = getattr(self, 'canvas_temp_res', None)
-        if axs_tr is not None:
-            try:
-                # New term-by-term layout: 3 rows x 2 columns (6 subplots)
-                # Each subplot shows both materials (A solid, B dashed) using
-                # the same color per component and different linestyles.
-                styleA = '-'
-                styleB = '--'
-                # component colors
-                color_ta = 'tab:blue'
-                color_kdown = 'tab:orange'
-                color_kup = 'tab:green'
-                color_knet = 'tab:blue'
-                color_ldown = 'tab:orange'
-                color_lup = 'tab:green'
-                color_lnet = 'tab:blue'
-                color_h = 'tab:blue'
-                color_e = 'tab:blue'
-                color_g = 'tab:blue'
+        if axs_tr is None:
+            return
+        try:
+            styleA = '-'
+            styleB = '--'
+            color_ta = 'black'
+            color_kdown = 'tab:orange'
+            color_kup = 'magenta'
+            color_knet = 'black'
+            color_ldown = 'tab:orange'
+            color_lup = 'magenta'
+            color_lnet = 'black'
+            color_h = 'black'
+            color_e = 'black'
+            color_g = 'black'
 
-                def _safe(x, ref):
+            # TS subplot
+            ax_ta = axs_tr[0][0]
+            ax_ta.clear()
+            # plot surface temperature (Ts) in °C
+            ax_ta.plot(outA['t'], outA['Ta'] - 273.15, color=color_kdown, linestyle=styleA, label='Ta')
+            ax_ta.plot(outA['t'], outA['Ts'] - 273.15, color=color_ta, linestyle=styleA, label='Ts A')
+            if outB is not None:
+                ax_ta.plot(outB['t'], outB['Ts'] - 273.15, color=color_ta, linestyle=styleB, label='Ts B')
+            ax_ta.set_ylabel('Ts (°C)')
+            ax_ta.set_xlabel('Time (h)')
+            ax_ta.grid(True, linestyle=':', alpha=0.4)
+            ax_ta.legend(loc='upper left', fontsize='small')
+
+            # K components subplot
+            ax_k = axs_tr[0][1]
+            ax_k.clear()
+            ax_k.plot(outA['t'], outA['Kstar'], color=color_knet, linestyle=styleA, label='K*')
+            ax_k.plot(outA['t'], outA['Kdown'], color=color_kdown, linestyle=styleA, label='Kdown')
+            ax_k.plot(outA['t'], -outA['Kup'], color=color_kup, linestyle=styleA, label='-Kup')
+            if outB is not None:
+                ax_k.plot(outB['t'], outB['Kdown'], color=color_knet, linestyle=styleB)
+                ax_k.plot(outB['t'], outB['Kdown'], color=color_kdown, linestyle=styleB)
+                ax_k.plot(outB['t'], -outB['Kup'], color=color_kup, linestyle=styleB)
+            ax_k.set_ylabel('K (W/m2)')
+            ax_k.set_xlabel('Time (h)')
+            ax_k.grid(True, linestyle=':', alpha=0.4)
+            ax_k.legend(loc='upper left', fontsize='small')
+
+            # L components subplot
+            ax_l = axs_tr[1][0]
+            ax_l.clear()
+            ax_l.plot(outA['t'], outA['Lstar'], color=color_lnet, linestyle=styleA, label='L*')
+            ax_l.plot(outA['t'], outA['Ldown'], color=color_ldown, linestyle=styleA, label='Ldown')
+            ax_l.plot(outA['t'], -outA['Lup'], color=color_lup, linestyle=styleA, label='-Lup')
+            if outB is not None:
+                ax_l.plot(outB['t'], outB['Lstar'], color=color_lnet, linestyle=styleB)
+                ax_l.plot(outB['t'], outB['Ldown'], color=color_ldown, linestyle=styleB)
+                ax_l.plot(outB['t'], -outB['Lup'], color=color_lup, linestyle=styleB)
+            ax_l.set_ylabel('L (W/m2)')
+            ax_l.set_xlabel('Time (h)')
+            ax_l.grid(True, linestyle=':', alpha=0.4)
+            ax_l.legend(loc='upper left', fontsize='small')
+
+            # H subplot
+            ax_h = axs_tr[1][1]
+            ax_h.clear()
+            ax_h.plot(outA['t'], outA['H'], color=color_h, linestyle=styleA)
+            if outB is not None:
+                ax_h.plot(outB['t'], outB['H'], color=color_h, linestyle=styleB)
+            ax_h.set_ylabel('H (W/m2)')
+            ax_h.set_xlabel('Time (h)')
+            ax_h.grid(True, linestyle=':', alpha=0.4)
+
+            # E subplot
+            ax_e = axs_tr[2][0]
+            ax_e.clear()
+            E_A = outA['E'] if 'E' in outA else np.zeros_like(outA['t'])
+            if not self._mat_allows_evap(mA):
+                E_A = np.zeros_like(E_A)
+            ax_e.plot(outA['t'], E_A, color=color_e, linestyle=styleA)
+            if outB is not None:
+                E_B = outB['E'] if 'E' in outB else np.zeros_like(outB['t'])
+                if not self._mat_allows_evap(mB):
+                    E_B = np.zeros_like(E_B)
+                ax_e.plot(outB['t'], E_B, color=color_e, linestyle=styleB)
+            ax_e.set_ylabel('E (W/m2)')
+            ax_e.set_xlabel('Time (h)')
+            ax_e.grid(True, linestyle=':', alpha=0.4)
+
+            # G subplot
+            ax_g = axs_tr[2][1]
+            ax_g.clear()
+            ax_g.plot(outA['t'], outA['G'], color=color_g, linestyle=styleA)
+            if outB is not None:
+                ax_g.plot(outB['t'], outB['G'], color=color_g, linestyle=styleB)
+            ax_g.set_ylabel('G (W/m2)')
+            ax_g.set_xlabel('Time (h)')
+            ax_g.grid(True, linestyle=':', alpha=0.4)
+
+        except Exception:
+            tb = traceback.format_exc()
+
+        try:
+            if can_tr is not None:
+                try:
+                    can_tr.draw()
+                except Exception:
                     try:
-                        return np.asarray(x)
+                        cav = getattr(self, 'canvas_temp_res', None)
+                        if cav is not None:
+                            cav.draw()
                     except Exception:
-                        return np.zeros_like(ref)
-
-                # mapping: (row, col) -> variable
-                # Row0 Col0: Ta, Col1: K components + net
-                # Row1 Col0: L components + net, Col1: H
-                # Row2 Col0: E, Col1: G
-
-
-                # TS subplot
-                ax_ta = axs_tr[0][0]
-                ax_ta.clear()
-                ax_ta.plot(outA['t'], outA['Ts'], color=color_ta, linestyle=styleA, label=f"A")
-                if outB is not None:
-                    ax_ta.plot(outB['t'], outB['Ts'], color=color_ta, linestyle=styleB, label=f"B")
-                ax_ta.set_ylabel('Ts (°C)')
-                ax_ta.set_xlabel('Time (h)')
-                ax_ta.grid(True, linestyle=':', alpha=0.4)
-                ax_ta.legend(loc='upper left', fontsize='small')
-
-                # K components subplot
-                ax_k = axs_tr[0][1]
-                ax_k.clear()
-                ax_k.plot(outA['t'], outA['Kstar'], color=color_knet, linestyle=styleA, label='K*')
-                ax_k.plot(outA['t'], outA['Kdown'], color=color_kdown, linestyle=styleA, label='Kdown')
-                ax_k.plot(outA['t'], -outA['Kup'], color=color_kup, linestyle=styleA, label='-Kup')
-                if outB is not None:
-                    ax_k.plot(outB['t'], outB['Kdown'], color=color_knet, linestyle=styleB)
-                    ax_k.plot(outB['t'], outB['Kdown'], color=color_kdown, linestyle=styleB)
-                    ax_k.plot(outB['t'], -outB['Kup'], color=color_kup, linestyle=styleB)
-                ax_k.set_ylabel('K (W/m2)')
-                ax_k.set_xlabel('Time (h)')
-                ax_k.grid(True, linestyle=':', alpha=0.4)
-                ax_k.legend(loc='upper left', fontsize='small')
-
-                # L components subplot (use same pattern as Ts/Kstar)
-                ax_l = axs_tr[1][0]
-                ax_l.clear()
-                # plot net longwave and components directly from outputs
-                ax_l.plot(outA['t'], outA['Lstar'], color=color_lnet, linestyle=styleA, label='L*')
-                ax_l.plot(outA['t'], outA['Ldown'], color=color_ldown, linestyle=styleA, label='Ldown')
-                ax_l.plot(outA['t'], -outA['Lup'], color=color_lup, linestyle=styleA, label='-Lup')
-                if outB is not None:
-                    ax_l.plot(outB['t'], outB['Lstar'], color=color_lnet, linestyle=styleB)
-                    ax_l.plot(outB['t'], outB['Ldown'], color=color_ldown, linestyle=styleB)
-                    ax_l.plot(outB['t'], -outB['Lup'], color=color_lup, linestyle=styleB)
-                ax_l.set_ylabel('L (W/m2)')
-                ax_l.set_xlabel('Time (h)')
-                ax_l.grid(True, linestyle=':', alpha=0.4)
-                ax_l.legend(loc='upper left', fontsize='small')
-
-                # H subplot (plot directly like Ts/Kstar)
-                ax_h = axs_tr[1][1]
-                ax_h.clear()
-                ax_h.plot(outA['t'], outA['H'], color=color_h, linestyle=styleA)
-                if outB is not None:
-                    ax_h.plot(outB['t'], outB['H'], color=color_h, linestyle=styleB)
-                ax_h.set_ylabel('H (W/m2)')
-                ax_h.set_xlabel('Time (h)')
-                ax_h.grid(True, linestyle=':', alpha=0.4)
-
-                # E subplot (plot directly like Ts/Kstar)
-                ax_e = axs_tr[2][0]
-                ax_e.clear()
-                E_A = outA['E'] if 'E' in outA else np.zeros_like(outA['t'])
-                if not self._mat_allows_evap(mA):
-                    E_A = np.zeros_like(E_A)
-                ax_e.plot(outA['t'], E_A, color=color_e, linestyle=styleA)
-                if outB is not None:
-                    E_B = outB['E'] if 'E' in outB else np.zeros_like(outB['t'])
-                    if not self._mat_allows_evap(mB):
-                        E_B = np.zeros_like(E_B)
-                    ax_e.plot(outB['t'], E_B, color=color_e, linestyle=styleB)
-                ax_e.set_ylabel('E (W/m2)')
-                ax_e.set_xlabel('Time (h)')
-                ax_e.grid(True, linestyle=':', alpha=0.4)
-
-                # G subplot (plot directly like Ts/Kstar)
-                ax_g = axs_tr[2][1]
-                ax_g.clear()
-                ax_g.plot(outA['t'], outA['G'], color=color_g, linestyle=styleA)
-                if outB is not None:
-                    ax_g.plot(outB['t'], outB['G'], color=color_g, linestyle=styleB)
-                ax_g.set_ylabel('G (W/m2)')
-                ax_g.set_xlabel('Time (h)')
-                ax_g.grid(True, linestyle=':', alpha=0.4)
-
-
-            except Exception:
-                # throw the exception but continue
-                tb = traceback.format_exc()
-
-            # redraw the Term-by-term canvas if present so the UI updates
-            try:
-                if can_tr is not None:
-                    try:
-                        can_tr.draw()
-                    except Exception:
-                        # fallback to attribute on self if available (guarded)
-                        try:
-                            cav = getattr(self, 'canvas_temp_res', None)
-                            if cav is not None:
-                                cav.draw()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        # update Temp & SEB panel (time index 0 default)
-        self.update_tempseb(0)
-
+                        pass
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     app = App()

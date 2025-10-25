@@ -3,10 +3,12 @@
 This document describes the simple 1D model implemented in `model.py` and how to use it.
 
 Overview
+
 - The model couples a vertically discretised 1D conductive heat equation with a surface energy balance (shortwave, longwave, sensible & latent, ground conductive flux).
 - The numerical integration is performed via `scipy.integrate.solve_ivp` (BDF) for stability.
 
 Key components
+
 - `Material` dataclass: describes material properties (k, rho, cp, albedo, emissivity, evaporation flag).
 - `DEFAULTS`: sensible default parameters (time span, dt, physical constants, Nz, initial T0) so the module can be executed as a script.
 - `diurnal_forcing()` / `kdown()`: convenience functions to create a simple diurnal air temperature and shortwave time series.
@@ -14,11 +16,13 @@ Key components
 - `run_simulation(mat, params, dt, tmax)`: the main programmatic entry point. It returns a dictionary with arrays used by the GUI and plots.
 
 run_simulation inputs (brief)
+
 - `mat`: a `Material` instance (use `load_material(key)` to read from `materials.json`).
 - `params`: dict with keys including `forcing` (a dict with arrays `'t'`, `'Ta'`, `'Kdown'`, `'Ldown'`), `beta`, `h`, `thickness`, optionally `Nz` and `T0`.
 - `dt`, `tmax`: timestep for outputs and final simulation time (seconds).
 
 run_simulation outputs (dict)
+
 - `t`: time array (s)
 - `Ta`: air temperature array (K)
 - `Ts`: surface temperature (K)
@@ -60,8 +64,10 @@ print(out['Ts'][-1])
 ```
 
 Notes & caveats
+
 - The demo script in `model.py` displays plots using Matplotlib and intentionally avoids importing the GUI (`app.py`) to prevent circular imports.
 - For interactive usage inside the GUI, the `app` module constructs the forcing arrays and passes them into `run_simulation` so the GUI and model use the identical forcing times for exact comparisons.
 
 License / attribution
+
 - See the repository `README.md` for license and author details.
