@@ -26,8 +26,11 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import customtkinter as ctk
+import logging
+import traceback
+import sys
 
-from model import load_material, run_simulation, diurnal_forcing
+from model import load_material, run_simulation, diurnal_forcing, DEFAULTS as MODEL_DEFAULTS, hour
 
 
 def load_material_keys(path: str = "materials.json"):
@@ -45,23 +48,16 @@ def customtk_available() -> bool:
         return False
 
 class App(ctk.CTk):
-    # centralized default parameters for the UI and model
-    hour = 3600.0
 
-    DEFAULTS = {
-        'thickA': 1.0,
-        'thickB': 1.0,
+    # GUI-only defaults (keep UI-only flags separate from model DEFAULTS)
+    GUIDEFAULTS = {
         'compare': False,
-        'Sb': 1000.0,
-        'trise_hr': 7.0,
-        'tset_hr': 21.0,
-        'Ldown': 350.0,
-        'hcoef': 10.0,
-        'Ta_mean_C': 20.0,
-        'Ta_amp_C': 5.0,
-        'beta': 0.5,
         'speed': 1.0,
+        # forcing time resolution (seconds) used to generate high-res forcing
+        # passed to the model when running (default: 60 s)
+        'forcing_dt': 60.0,
     }
+
     # annotate some optional attributes to quiet static checkers (Pylance)
     _tooltip_win: Optional[tk.Toplevel] = None
     _tooltip_after_id: Optional[str] = None
@@ -170,17 +166,19 @@ class App(ctk.CTk):
         except Exception:
             pass
         ctk.CTkLabel(frameA, text='Thickness A (m):').grid(row=1, column=0, sticky='w', pady=(6, 0))
-        self.thickA = ctk.DoubleVar(value=self.DEFAULTS['thickA'])
+        self.thickA = ctk.DoubleVar(value=MODEL_DEFAULTS['thickness'])
         self.entry_thickA = ctk.CTkEntry(frameA, textvariable=self.thickA, width=120, justify='right')
         self.entry_thickA.grid(row=1, column=1, sticky='e', padx=(6, 0), pady=(6, 0))
 
         # Compare control in third column above Material B
-        self.compare_var = ctk.BooleanVar(value=self.DEFAULTS['compare'])
+        # GUI compare default: prefer GUIDEFAULTS (UI-only); fall back to model DEFAULTS
+        cmp_def = self.GUIDEFAULTS['compare']
+        self.compare_var = ctk.BooleanVar(value=cmp_def)
         cmp_frame = ctk.CTkFrame(frm, fg_color='transparent')
         # place the compare control inside the third column (column=2).
         # The label will be left-aligned and the checkbox right-aligned within this column.
         cmp_frame.grid(row=0, column=2, sticky='nsew', padx=(6, 0), pady=(6, 0))
-            # give the right-hand column weight so the checkbox can expand
+        # give the right-hand column weight so the checkbox can expand
         # and be flush with the right edge of the window
         cmp_frame.grid_columnconfigure(0, weight=1)
         cmp_frame.grid_columnconfigure(1, weight=1)
@@ -196,7 +194,7 @@ class App(ctk.CTk):
         frameB.grid_columnconfigure(0, weight=0)
         frameB.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(frameB, text='Material B:').grid(row=0, column=0, sticky='w')
-        self.matB = ctk.StringVar(value=keys[0] if len(keys) > 1 else keys[0])
+        self.matB = ctk.StringVar(value=(keys[1] if len(keys) > 1 else keys[0]))
         self.opt_matB = ctk.CTkOptionMenu(frameB, values=keys, variable=self.matB, width=150)
         self.opt_matB.grid(row=0, column=1, sticky='e', padx=(6, 0))
         # tooltip support for material B
@@ -213,7 +211,7 @@ class App(ctk.CTk):
             self._lbl_thickB_color_default = self.lbl_thickB.cget('text_color')
         except Exception:
             self._lbl_thickB_color_default = None
-        self.thickB = ctk.DoubleVar(value=self.DEFAULTS['thickB'])
+        self.thickB = ctk.DoubleVar(value=MODEL_DEFAULTS['thickness'])
         self.entry_thickB = ctk.CTkEntry(frameB, textvariable=self.thickB, width=120, justify='right')
         self.entry_thickB.grid(row=1, column=1, sticky='e', padx=(6, 0), pady=(6, 0))
         # remember entry default text color so we can restore it reliably
@@ -230,16 +228,19 @@ class App(ctk.CTk):
         self._closed = False
         # storage for validated parameters (filled by validators)
         self._params = {
-            'thickness_A': float(self.DEFAULTS['thickA']),
-            'thickness_B': float(self.DEFAULTS['thickB']),
-            'Sb': float(self.DEFAULTS['Sb']),
-            'trise': int(self.DEFAULTS['trise_hr'] * self.hour),
-            'tset': int(self.DEFAULTS['tset_hr'] * self.hour),
-            'Ldown': float(self.DEFAULTS['Ldown']),
-            'h': float(self.DEFAULTS['hcoef']),
-            'Ta_mean': float(self.DEFAULTS['Ta_mean_C']) + 273.15,
-            'Ta_amp': float(self.DEFAULTS['Ta_amp_C']),
-            'beta': float(self.DEFAULTS['beta']),
+            'thickness_A': float(MODEL_DEFAULTS['thickness']),
+            'thickness_B': float(MODEL_DEFAULTS['thickness']),
+            'Sb': float(MODEL_DEFAULTS['Sb']),
+            # model DEFAULTS stores trise/tset in seconds
+            'trise': int(MODEL_DEFAULTS['trise']),
+            'tset': int(MODEL_DEFAULTS['tset']),
+            'Ldown': float(MODEL_DEFAULTS['Ldown']),
+            # model uses key 'h' for heat-transfer coefficient
+            'h': float(MODEL_DEFAULTS['h']),
+            # model Ta_mean is in Kelvin; keep internal param in K
+            'Ta_mean': float(MODEL_DEFAULTS['Ta_mean']),
+            'Ta_amp': float(MODEL_DEFAULTS['Ta_amp']),
+            'beta': float(MODEL_DEFAULTS['beta']),
         }
 
         # Parameters arranged in three vertical columns under the materials
@@ -261,46 +262,55 @@ class App(ctk.CTk):
 
         # Column 0
         ctk.CTkLabel(self.param_col0, text='Peak shortwave (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.Sb = ctk.DoubleVar(value=self.DEFAULTS['Sb'])
+        self.Sb = ctk.DoubleVar(value=MODEL_DEFAULTS['Sb'])
         self.entry_Sb = ctk.CTkEntry(self.param_col0, textvariable=self.Sb, width=80, justify='right')
         self.entry_Sb.grid(row=0, column=1, sticky='e', pady=(0,4))
 
         ctk.CTkLabel(self.param_col0, text='Sunrise time (h):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.trise_hr = ctk.DoubleVar(value=self.DEFAULTS['trise_hr'])
+        # model stores trise in seconds; present GUI field in hours
+        trise_hours = float(MODEL_DEFAULTS['trise']) / float(hour)
+        self.trise_hr = ctk.DoubleVar(value=trise_hours)
         self.entry_trise = ctk.CTkEntry(self.param_col0, textvariable=self.trise_hr, width=80, justify='right')
         self.entry_trise.grid(row=1, column=1, sticky='e', pady=(0,4))
 
         ctk.CTkLabel(self.param_col0, text='Sunset time (h):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.tset_hr = ctk.DoubleVar(value=self.DEFAULTS['tset_hr'])
+        tset_hours = float(MODEL_DEFAULTS['tset']) / float(hour)
+        self.tset_hr = ctk.DoubleVar(value=tset_hours)
         self.entry_tset = ctk.CTkEntry(self.param_col0, textvariable=self.tset_hr, width=80, justify='right')
         self.entry_tset.grid(row=2, column=1, sticky='e', pady=(0,4))
 
         # Column 1
         ctk.CTkLabel(self.param_col1, text='Incoming longwave (W/m2):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.Ldown = ctk.DoubleVar(value=self.DEFAULTS['Ldown'])
+        self.Ldown = ctk.DoubleVar(value=MODEL_DEFAULTS['Ldown'])
         self.entry_Ldown = ctk.CTkEntry(self.param_col1, textvariable=self.Ldown, width=80, justify='right')
         self.entry_Ldown.grid(row=0, column=1, sticky='e', pady=(0,4))
 
         ctk.CTkLabel(self.param_col1, text='Heat transfer coeff (W/m2K):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.hcoef = ctk.DoubleVar(value=self.DEFAULTS['hcoef'])
+        # model uses key 'h' for the heat transfer coefficient
+        hval = float(MODEL_DEFAULTS['h'])
+        self.hcoef = ctk.DoubleVar(value=hval)
         self.entry_hcoef = ctk.CTkEntry(self.param_col1, textvariable=self.hcoef, width=80, justify='right')
         self.entry_hcoef.grid(row=1, column=1, sticky='e', pady=(0,4))
 
         # Bowen ratio moved here (swapped with Air mean temp)
         ctk.CTkLabel(self.param_col1, text='Bowen ratio (-):').grid(row=2, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.beta_var = ctk.DoubleVar(value=self.DEFAULTS['beta'])
+        self.beta_var = ctk.DoubleVar(value=MODEL_DEFAULTS['beta'])
         self.entry_beta = ctk.CTkEntry(self.param_col1, textvariable=self.beta_var, width=80, justify='right')
         self.entry_beta.grid(row=2, column=1, sticky='e', pady=(0,4))
 
         # Column 2
         ctk.CTkLabel(self.param_col2, text='Air temperature amp (°C):').grid(row=0, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.Ta_amp_C = ctk.DoubleVar(value=self.DEFAULTS['Ta_amp_C'])
+        # model Ta_amp is in K (same scale as °C for amplitudes)
+        ta_amp = float(MODEL_DEFAULTS['Ta_amp'])
+        self.Ta_amp_C = ctk.DoubleVar(value=ta_amp)
         self.entry_Ta_amp = ctk.CTkEntry(self.param_col2, textvariable=self.Ta_amp_C, width=80, justify='right')
         self.entry_Ta_amp.grid(row=0, column=1, sticky='e', pady=(0,4))
 
         # Air mean temperature moved here (swapped with Bowen ratio)
         ctk.CTkLabel(self.param_col2, text='Air mean temp (°C):').grid(row=1, column=0, sticky='w', padx=(0,6), pady=(0,4))
-        self.Ta_mean_C = ctk.DoubleVar(value=self.DEFAULTS['Ta_mean_C'])
+        ta_mean_k = float(MODEL_DEFAULTS['Ta_mean'])
+        # present mean air temperature in °C in the GUI
+        self.Ta_mean_C = ctk.DoubleVar(value=ta_mean_k - 273.15)
         self.entry_Ta_mean = ctk.CTkEntry(self.param_col2, textvariable=self.Ta_mean_C, width=80, justify='right')
         self.entry_Ta_mean.grid(row=1, column=1, sticky='e', pady=(0,4))
 
@@ -409,6 +419,8 @@ class App(ctk.CTk):
 
     def _build_results_tab(self):
         """Create the Results tab figure and axes."""
+        # Results: create a 2x2 grid. When only one material is present we use
+        # the left column; when comparing we fill both columns.
         self.fig_res = Figure(figsize=(8, 9))
         if getattr(self, '_input_frame_bg', None):
             mcol = self._mpl_color_from_ctk(self._input_frame_bg)
@@ -416,13 +428,15 @@ class App(ctk.CTk):
                 self.fig_res.patch.set_facecolor(mcol)
         self.canvas_res = FigureCanvasTkAgg(self.fig_res, master=self.tab_results)
         self.canvas_res.get_tk_widget().pack(fill='both', expand=True)
-        self.axs_res = self.fig_res.subplots(6, 1)
+        # 2 rows x 2 cols, keep as 2D array for easy indexing
+        self.axs_res = self.fig_res.subplots(2, 2, squeeze=False)
 
     def _build_tempseb_tab(self):
         """Create the Temp & SEB (term-by-term) tab contents."""
+        # small Temp profile figure exists for programmatic use but is not
+        # shown in the UI (Term-by-term grid is the visible summary)
         self.fig_temp = Figure(figsize=(6, 3))
         self.canvas_temp = FigureCanvasTkAgg(self.fig_temp, master=self.tab_tempseb)
-        self.canvas_temp.get_tk_widget().pack(fill='both', expand=True)
         self.ax_temp = self.fig_temp.subplots(1, 1)
         if getattr(self, '_input_frame_bg', None):
             mcol = self._mpl_color_from_ctk(self._input_frame_bg)
@@ -433,12 +447,28 @@ class App(ctk.CTk):
 
         # time slider for Temp & SEB (inactive until a run populates anim_data)
         self.temp_time_var = ctk.IntVar(value=0)
+        # slider and playback controls are intentionally not packed into the
+        # UI (we don't show animation controls in the Term-by-term tab)
         self.temp_slider = ctk.CTkSlider(self.tab_tempseb, from_=0, to=1, number_of_steps=1, command=lambda v: self.update_tempseb(int(float(v))))
-        self.temp_slider.pack(fill='x', padx=10, pady=6)
         # playback controls for Temp & SEB
         self.temp_playing = False
         self.temp_play_btn = ctk.CTkButton(self.tab_tempseb, text='Play', command=self.toggle_temp_playback, state='disabled')
-        self.temp_play_btn.pack(padx=10, pady=(0, 6))
+
+        # Also provide a copy of the Results plots in the Term by Term tab so
+        # users can see the summary plots alongside the temporal profile view.
+        # Use a 3x3 grid so each panel can show both Material A and B together
+        # (with a legend) as requested.
+        self.fig_temp_res = Figure(figsize=(9, 9))
+        if getattr(self, '_input_frame_bg', None):
+            mcol = self._mpl_color_from_ctk(self._input_frame_bg)
+            if mcol is not None:
+                self.fig_temp_res.patch.set_facecolor(mcol)
+        self.canvas_temp_res = FigureCanvasTkAgg(self.fig_temp_res, master=self.tab_tempseb)
+        self.canvas_temp_res.get_tk_widget().pack(fill='both', expand=True)
+        # term-by-term comparison: 3 rows x 2 cols. We'll plot the main
+        # terms (Ts, K*, L*, H, E, G) in the first two rows and use the third
+        # row for derived comparisons (residual, Ts diff, E diff).
+        self.axs_temp_res = self.fig_temp_res.subplots(3, 2, squeeze=False)
 
     def _build_animation_tab(self):
         """Create the Animation tab figure and controls."""
@@ -457,7 +487,12 @@ class App(ctk.CTk):
         self.anim_ctrl_frame.pack(side='left', fill='y', padx=8, pady=6)
         self.time_label = ctk.CTkLabel(self.anim_ctrl_frame, text='Time: -- h')
         self.time_label.grid(row=0, column=0)
-        self.speed_var = ctk.DoubleVar(value=1.0)
+        # animation speed: prefer GUI-only default
+        try:
+            sv = float(self.GUIDEFAULTS.get('speed', 1.0))
+        except Exception:
+            sv = 1.0
+        self.speed_var = ctk.DoubleVar(value=sv)
         ctk.CTkLabel(self.anim_ctrl_frame, text='Speed:').grid(row=1, column=0, sticky='w')
         ctk.CTkEntry(self.anim_ctrl_frame, textvariable=self.speed_var, width=80).grid(row=2, column=0)
         self.btn_start = ctk.CTkButton(self.anim_ctrl_frame, text='Start', command=self.toggle_animation, state='disabled')
@@ -502,14 +537,14 @@ class App(ctk.CTk):
         
         # Read inputs (already validated elsewhere) — just retrieve values
         Sb = float(self.Sb.get())
-        trise = int(float(self.trise_hr.get()) * self.hour)
-        tset = int(float(self.tset_hr.get()) * self.hour)
+        trise = int(float(self.trise_hr.get()) * hour)
+        tset = int(float(self.tset_hr.get()) * hour)
         Ta_mean = float(self.Ta_mean_C.get()) + 273.15
         Ta_amp = float(self.Ta_amp_C.get())
         Ldown = float(self.Ldown.get())
 
         # plot over a 24 h window with a 10-min timestep
-        tmax = 24 * self.hour
+        tmax = 24 * hour
         dt = 600.0
         t = np.arange(0, tmax + dt, dt)
         TaK, S0 = diurnal_forcing(t, Ta_mean=Ta_mean, Ta_amp=Ta_amp, Sb=Sb, trise=trise, tset=tset)
@@ -518,7 +553,7 @@ class App(ctk.CTk):
 
         # Ta figure
         self.ax_Ta.clear()
-        self.ax_Ta.plot(t / self.hour, TaC, color='tab:blue', label='Ta (Â°C)')
+        self.ax_Ta.plot(t / hour, TaC, color='tab:blue', label='Ta (Â°C)')
         self.ax_Ta.set_xlabel('Time (h)')
         self.ax_Ta.set_ylabel('Air temp (Â°C)')
         self.ax_Ta.set_xlim(0, 24)
@@ -555,8 +590,8 @@ class App(ctk.CTk):
 
         # Kdown + Ldown figure
         self.ax_K.clear()
-        self.ax_K.plot(t / self.hour, S0, color='tab:orange', label='Kdown (W/m2)')
-        self.ax_K.plot(t / self.hour, np.full_like(t, Ldown), color='tab:purple', linestyle='--', label='Ldown (W/m2)')
+        self.ax_K.plot(t / hour, S0, color='tab:orange', label='Kdown (W/m2)')
+        self.ax_K.plot(t / hour, np.full_like(t, Ldown), color='tab:purple', linestyle='--', label='Ldown (W/m2)')
         self.ax_K.set_xlabel('Time (h)')
         self.ax_K.set_ylabel('Flux (W/m2)')
         self.ax_K.set_xlim(0, 24)
@@ -614,6 +649,95 @@ class App(ctk.CTk):
                 # fallback to older trace
                 v.trace('w', lambda *a, _=v: self._schedule_preview_update())
 
+    # --- generic validators -------------------------------------------------
+    def _var_for_key(self, key: str):
+        """Return the tkinter Variable associated with a validation key.
+
+        This maps logical parameter names (keys used in validators) to the
+        tkinter variable attributes stored on the App instance.
+        """
+        mapping = {
+            'Sb': 'Sb',
+            'trise': 'trise_hr',
+            'tset': 'tset_hr',
+            'Ldown': 'Ldown',
+            'h': 'hcoef',
+            'Ta_mean': 'Ta_mean_C',
+            'Ta_amp': 'Ta_amp_C',
+            'beta': 'beta_var',
+            'thickness_A': 'thickA',
+            'thickness_B': 'thickB',
+        }
+        attr = mapping.get(key)
+        if not attr:
+            return None
+        return getattr(self, attr, None)
+
+    def _validate_nonneg(self, key: str):
+        """Validate a non-negative numeric field (>= 0). Returns (ok, value)."""
+        var = self._var_for_key(key)
+        if var is None:
+            return False, f"Internal error: missing UI variable for {key}."
+        try:
+            v = float(var.get())
+            if v < 0:
+                raise ValueError
+        except Exception:
+            return False, f"Invalid {key} â€” must be a non-negative number."
+        return True, float(v)
+
+    def _validate_positive(self, key: str):
+        """Validate a strictly positive numeric field (> 0)."""
+        var = self._var_for_key(key)
+        if var is None:
+            return False, f"Internal error: missing UI variable for {key}."
+        try:
+            v = float(var.get())
+            if v <= 0:
+                raise ValueError
+        except Exception:
+            return False, f"Invalid {key} â€” must be a positive number."
+        return True, float(v)
+
+    def _validate_hours(self, key: str):
+        """Validate an hours-of-day field (0..24) and return seconds (int).
+
+        The GUI stores hours; model uses seconds so the canonical value returned
+        is in seconds.
+        """
+        var = self._var_for_key(key)
+        if var is None:
+            return False, f"Internal error: missing UI variable for {key}."
+        try:
+            vh = float(var.get())
+            if not (0.0 <= vh <= 24.0):
+                raise ValueError
+            return True, int(vh * hour)
+        except Exception:
+            return False, f"Invalid {key} â€” enter hours between 0 and 24."
+
+    def _validate_tempC(self, key: str):
+        """Validate an air temperature in °C and return Kelvin."""
+        var = self._var_for_key(key)
+        if var is None:
+            return False, f"Internal error: missing UI variable for {key}."
+        try:
+            v_c = float(var.get())
+        except Exception:
+            return False, f"Invalid {key} â€” enter a numeric Â°C value."
+        return True, float(v_c) + 273.15
+
+    def _validate_any_number(self, key: str):
+        """Generic numeric validator with no sign constraints."""
+        var = self._var_for_key(key)
+        if var is None:
+            return False, f"Internal error: missing UI variable for {key}."
+        try:
+            v = float(var.get())
+        except Exception:
+            return False, f"Invalid {key} â€” enter a numeric value."
+        return True, float(v)
+
     def _validate_and_store(self, key: Optional[str] = None, event: Optional[object] = None):
         """Validate input fields on focus-out and store canonical values in self._params.
 
@@ -627,14 +751,14 @@ class App(ctk.CTk):
 
         # helper to map validation keys to entry widgets and readable names
         key_map = {
-            'Sb': (self.entry_Sb, 'Peak shortwave Sb (W/m2)'),
-            'trise': (self.entry_trise, 'Sunrise trise (h)'),
-            'tset': (self.entry_tset, 'Sunset tset (h)'),
-            'Ldown': (self.entry_Ldown, 'Incoming Ldown (W/m2)'),
-            'h': (self.entry_hcoef, 'Heat transfer h (W/m2K)'),
-            'Ta_mean': (self.entry_Ta_mean, 'Air mean temp (Â°C)'),
-            'Ta_amp': (self.entry_Ta_amp, 'Air amp (Â°C)'),
-            'beta': (self.entry_beta, 'Bowen beta'),
+            'Sb': (self.entry_Sb, 'Peak shortwave (W/m2)'),
+            'trise': (self.entry_trise, 'Sunrise time (h)'),
+            'tset': (self.entry_tset, 'Sunset time (h)'),
+            'Ldown': (self.entry_Ldown, 'Incoming longwave (W/m2)'),
+            'h': (self.entry_hcoef, 'Heat transfer coeff (W/m2K)'),
+            'Ta_mean': (self.entry_Ta_mean, 'Air mean temp (°C)'),
+            'Ta_amp': (self.entry_Ta_amp, 'Air temperature amp (°C)'),
+            'beta': (self.entry_beta, 'Bowen ratio (-)'),
             'thickness_A': (self.entry_thickA, 'Thickness A (m)'),
             'thickness_B': (self.entry_thickB, 'Thickness B (m)'),
         }
@@ -658,104 +782,19 @@ class App(ctk.CTk):
             except Exception:
                 focus_and_select(entry_widget)
 
-        # validation routines for each key. Return (ok, canonical_value)
-        def validate_Sb():
-            try:
-                v = float(self.Sb.get())
-                if v < 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid Sb â€” must be a non-negative number."
-            return True, float(v)
-
-        def validate_trise():
-            try:
-                vh = float(self.trise_hr.get())
-                if not (0.0 <= vh <= 24.0):
-                    raise ValueError
-                return True, int(vh * self.hour)
-            except Exception:
-                return False, f"Invalid sunrise time â€” enter hours between 0 and 24."
-
-        def validate_tset():
-            try:
-                vh = float(self.tset_hr.get())
-                if not (0.0 <= vh <= 24.0):
-                    raise ValueError
-                return True, int(vh * self.hour)
-            except Exception:
-                return False, f"Invalid sunset time â€” enter hours between 0 and 24."
-
-        def validate_Ldown():
-            try:
-                v = float(self.Ldown.get())
-                if v < 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid Ldown â€” must be a non-negative number."
-            return True, float(v)
-
-        def validate_h():
-            try:
-                v = float(self.hcoef.get())
-                if v < 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid heat-transfer coefficient â€” must be non-negative."
-            return True, float(v)
-
-        def validate_Ta_mean():
-            try:
-                v_c = float(self.Ta_mean_C.get())
-            except Exception:
-                return False, f"Invalid air mean temperature â€” enter a numeric Â°C value."
-            return True, float(v_c) + 273.15
-
-        def validate_Ta_amp():
-            try:
-                v = float(self.Ta_amp_C.get())
-                if v < 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid air temperature amplitude â€” must be non-negative."
-            return True, float(v)
-
-        def validate_beta():
-            try:
-                v = float(self.beta_var.get())
-            except Exception:
-                return False, f"Invalid Bowen beta â€” enter a numeric value."
-            return True, float(v)
-
-        def validate_thickness_A():
-            try:
-                v = float(self.thickA.get())
-                if v <= 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid Thickness A â€” must be a positive number."
-            return True, float(v)
-
-        def validate_thickness_B():
-            try:
-                v = float(self.thickB.get())
-                if v <= 0:
-                    raise ValueError
-            except Exception:
-                return False, f"Invalid Thickness B â€” must be a positive number."
-            return True, float(v)
-
+        # validation routines for each key. Use the generic validators above
+        # so each validator only needs the logical parameter name.
         validators = {
-            'Sb': validate_Sb,
-            'trise': validate_trise,
-            'tset': validate_tset,
-            'Ldown': validate_Ldown,
-            'h': validate_h,
-            'Ta_mean': validate_Ta_mean,
-            'Ta_amp': validate_Ta_amp,
-            'beta': validate_beta,
-            'thickness_A': validate_thickness_A,
-            'thickness_B': validate_thickness_B,
+            'Sb': lambda: self._validate_nonneg('Sb'),
+            'trise': lambda: self._validate_hours('trise'),
+            'tset': lambda: self._validate_hours('tset'),
+            'Ldown': lambda: self._validate_nonneg('Ldown'),
+            'h': lambda: self._validate_nonneg('h'),
+            'Ta_mean': lambda: self._validate_tempC('Ta_mean'),
+            'Ta_amp': lambda: self._validate_nonneg('Ta_amp'),
+            'beta': lambda: self._validate_any_number('beta'),
+            'thickness_A': lambda: self._validate_positive('thickness_A'),
+            'thickness_B': lambda: self._validate_positive('thickness_B'),
         }
 
         # if no specific key given, validate all and stop at first error
@@ -1223,15 +1262,12 @@ class App(ctk.CTk):
         #  - H (sensible)       : upward when positive (surface->air)
         #  - E (latent)         : upward when positive
         #  - G (ground)         : downward when positive into the ground
-        Q = out['Qstar'][idx]; L = out['L'][idx]; H = out['H'][idx];
-        # only include latent flux if material explicitly allows evaporation
-        if self._mat_allows_evap(mat):
-            # safe-get E (may be list or array)
-            E = out.get('E', np.zeros_like(out.get('times', [0])))[idx]
-        else:
-            E = 0.0
+        Kstar = out['Kstar'][idx]
+        Lstar = out['Lstar'][idx]
+        H = out['H'][idx]
+        E = out['E'][idx]
         G = out['G'][idx]
-        vals = [Q, L, H, E, G]
+        vals = [Kstar, Lstar, H, E, G]
         maxv = max(1.0, max(abs(v) for v in vals))
         # vertical positions (axes fraction) for arrows
         y_positions = [0.85, 0.72, 0.59, 0.46, 0.33]
@@ -1334,31 +1370,47 @@ class App(ctk.CTk):
             # into self._params by _validate_and_store. Here we simply use those
             # canonical values and proceed to run the model.
             p = getattr(self, '_params', {})
-            Sb = p.get('Sb', self.DEFAULTS['Sb'])
-            trise = p.get('trise', int(self.DEFAULTS['trise_hr'] * self.hour))
-            tset = p.get('tset', int(self.DEFAULTS['tset_hr'] * self.hour))
-            Ldown = p.get('Ldown', self.DEFAULTS['Ldown'])
-            hcoef = p.get('h', self.DEFAULTS['hcoef'])
-            Ta_mean = p.get('Ta_mean', float(self.DEFAULTS['Ta_mean_C']) + 273.15)
-            Ta_amp = p.get('Ta_amp', self.DEFAULTS['Ta_amp_C'])
+            Sb = p.get('Sb', MODEL_DEFAULTS['Sb'])
+            trise = p.get('trise', int(MODEL_DEFAULTS['trise']))
+            tset = p.get('tset', int(MODEL_DEFAULTS['tset']))
+            Ldown = p.get('Ldown', MODEL_DEFAULTS['Ldown'])
+            hcoef = p.get('h', MODEL_DEFAULTS['h'])
 
-            params = {'Sb': Sb, 'trise': trise, 'tset': tset, 'Ldown': Ldown, 'h': hcoef, 'Ta_mean': Ta_mean, 'Ta_amp': Ta_amp}
+            # MODEL_DEFAULT stores Ta_mean in Kelvin and Ta_amp as amplitude
+            Ta_mean = p.get('Ta_mean', float(MODEL_DEFAULTS['Ta_mean']))
+            Ta_amp = p.get('Ta_amp', float(MODEL_DEFAULTS['Ta_amp']))
+
             # solver time grid (coarse) and forcing resolution (high-res for interpolation)
-            tmax = int(48 * self.hour)
-            dt_val = int(1800)
-            t_eval = np.arange(0, tmax + dt_val, dt_val)
-            # prefer passing a high-resolution forcing interval to the model so it
-            # generates Ta/S0 on a 1-min grid for interpolation (forcing_dt in seconds)
-            params.update({'t_array': t_eval, 'beta': float(p.get('beta', self.DEFAULTS['beta'])), 'forcing_dt': 60.0, 'thickness': float(p.get('thickness_A', self.DEFAULTS['thickA']))})
+            tmax = MODEL_DEFAULTS['tmax']
+            dt = MODEL_DEFAULTS['dt']
+
+            # prefer passing a high-resolution forcing interval to the model
+            # and supply precomputed forcing arrays (t, Ta, Kdown). This keeps
+            # the forcing construction in the GUI and ensures the same forcing
+            # is used for both A and B runs.
+            forcing_dt = float(self.GUIDEFAULTS['forcing_dt'])
+            forcing_t = np.arange(0.0, float(tmax) + forcing_dt, forcing_dt)
+            Ta_arr, S0_arr = diurnal_forcing(forcing_t, Ta_mean=Ta_mean, Ta_amp=Ta_amp, Sb=Sb, trise=trise, tset=tset)
+            # include Ldown as a time series (constant array) in the forcing
+            Ldown_arr = np.full_like(forcing_t, float(Ldown))
+            forcing = {'t': forcing_t, 'Ta': Ta_arr, 'Kdown': S0_arr, 'Ldown': Ldown_arr}
+
+            params = {
+                'beta': float(p.get('beta', MODEL_DEFAULTS['beta'])),
+                'h': float(p.get('h', MODEL_DEFAULTS['h'])),
+                'forcing': forcing,
+                'thickness': float(p.get('thickness_A', MODEL_DEFAULTS['thickness'])),
+            }
             mA = load_material(self.matA.get())
-            outA = run_simulation(mA, tmax=tmax, dt=dt_val, **params)
+            # run_simulation expects (mat, params, dt, tmax) where params is a dict
+            outA = run_simulation(mA, params, dt, tmax)
             outB = None
             mB = None
             if self.compare_var.get():
                 mB = load_material(self.matB.get())
                 params_b = params.copy()
-                params_b['thickness'] = float(p.get('thickness_B', self.DEFAULTS['thickB']))
-                outB = run_simulation(mB, tmax=tmax, dt=dt_val, **params_b)
+                params_b['thickness'] = float(p.get('thickness_B', MODEL_DEFAULTS['thickness']))
+                outB = run_simulation(mB, params_b, dt, tmax)
 
             # store for animation (include material metadata so we know if
             # evaporation is enabled per material)
@@ -1369,13 +1421,26 @@ class App(ctk.CTk):
             self.after(0, lambda: self._show_results(outA, outB, mA, mB))
             self.after(0, lambda: self.draw_anim_static())
             # configure temp slider to match number of time steps
-            nsteps = len(outA['times'])
+            nsteps = len(outA['t'])
             # configure CTkSlider range (from_ remains 0)
             self.temp_slider.configure(to=max(1, nsteps - 1), number_of_steps=max(1, nsteps - 1))
             self.temp_slider.set(0)
             self.btn_start.configure(state='normal')
             self.after(0, lambda: setattr(self, '_status_text', 'Simulation complete'))
         except Exception as exc:
+            # print full traceback to terminal so users/developers can see details
+            try:
+                tb = traceback.format_exc()
+                print(tb, file=sys.stderr)
+            except Exception:
+                pass
+            # also log via standard logging (captures stack trace)
+            try:
+                logging.getLogger(__name__).exception('Simulation failed in background thread')
+            except Exception:
+                pass
+
+            # show compact GUI error and update status
             self.after(0, lambda: messagebox.showerror('Error', f'Simulation failed:\n{exc}'))
             self.after(0, lambda: setattr(self, '_status_text', 'Error during simulation'))
         finally:
@@ -1441,81 +1506,287 @@ class App(ctk.CTk):
             self.quit()
 
     def _show_results(self, outA, outB: Optional[dict], mA: Optional[object] = None, mB: Optional[object] = None):
-        # populate the results axes (6 rows)
-        for a in self.axs_res:
-            a.clear()
-        t = outA['times'] / self.hour
-        self.axs_res[0].plot(t, outA['Ts'] - 273.15, color='r', label='A')
-        if outB is not None:
-            self.axs_res[0].plot(t, outB['Ts'] - 273.15, color='b', linestyle='--', label='B')
-        self.axs_res[0].set_ylabel('T_surf (Â°C)')
-        self.axs_res[0].legend()
+        # populate the results axes as either 1-column (left) or 2-column (A/B)
+        # layout: top = surface temperature, bottom = energy balance (K*, L*, H, E, G)
+        t = outA['t'] / hour
 
-        self.axs_res[1].plot(t, outA['Qstar'], color='orange')
-        if outB is not None:
-            self.axs_res[1].plot(t, outB['Qstar'], color='orange', linestyle='--')
-        self.axs_res[1].set_ylabel('K* (W/m2)')
-
-        self.axs_res[2].plot(t, outA['L'], color='magenta')
-        if outB is not None:
-            self.axs_res[2].plot(t, outB['L'], color='magenta', linestyle='--')
-        self.axs_res[2].set_ylabel('L* (W/m2)')
-
-        self.axs_res[3].plot(t, outA['H'], color='green')
-        if outB is not None:
-            self.axs_res[3].plot(t, outB['H'], color='green', linestyle='--')
-        self.axs_res[3].set_ylabel('H (W/m2)')
-
-        # plot latent flux E only for materials that support evaporation
+        # prepare results axes layout: use full width (2 rows x 1 col) when
+        # only one material is present, otherwise use 2x2 (A vs B)
         try:
-            if self._mat_allows_evap(mA):
-                eA = outA.get('E', np.zeros_like(outA['times']))
+            # clear previous axes and recreate appropriate layout
+            try:
+                self.fig_res.clf()
+            except Exception:
+                pass
+            if outB is None:
+                self.axs_res = self.fig_res.subplots(2, 1, squeeze=False)
             else:
-                eA = np.zeros_like(outA['times'])
-            self.axs_res[4].plot(t, eA, color='blue')
-            if outB is not None:
-                if self._mat_allows_evap(mB):
-                    eB = outB.get('E', np.zeros_like(outB['times']))
-                else:
-                    eB = np.zeros_like(outA['times'])
-                self.axs_res[4].plot(t, eB, color='blue', linestyle='--')
-            self.axs_res[4].set_ylabel('E (W/m2)')
+                self.axs_res = self.fig_res.subplots(2, 2, squeeze=False)
         except Exception:
-            self.axs_res[4].plot(t, outA.get('E', np.zeros_like(outA['times'])), color='blue')
-            if outB is not None:
-                self.axs_res[4].plot(t, outB.get('E', np.zeros_like(outA['times'])), color='blue', linestyle='--')
-            self.axs_res[4].set_ylabel('E (W/m2)')
+            # if that fails, keep existing axes
+            pass
 
-        self.axs_res[5].plot(t, outA['G'], color='saddlebrown')
-        if outB is not None:
-            self.axs_res[5].plot(t, outB['G'], color='saddlebrown', linestyle='--')
-        self.axs_res[5].set_ylabel('G (W/m2)')
-        self.axs_res[5].set_xlabel('Time (h)')
+        def plot_energy(ax, out, mat_obj):
+            ax.clear()
+            ax.plot(t, out['Kstar'], color='orange', label='K*')
+            ax.plot(t, out['Lstar'], color='magenta', label='L*')
+            ax.plot(t, out['H'], color='green', label='H')
+            # E only if material allows evaporation
+            if self._mat_allows_evap(mat_obj):
+                ax.plot(t, out['E'], color='blue', label='E')
+            else:
+                ax.plot(t, np.zeros_like(out['t']), color='blue', label='E')
+            ax.plot(t, out['G'], color='saddlebrown', label='G')
+            ax.set_ylabel('Flux (W/m2)')
+            ax.set_xlabel('Time (h)')
+            ax.legend(loc='upper right', fontsize='small')
 
-        self.canvas_res.draw()
+        def _mat_title(mat_obj, fallback_name: str):
+            try:
+                if mat_obj is None:
+                    return fallback_name
+                if isinstance(mat_obj, Mapping):
+                    return str(mat_obj.get('name', fallback_name))
+                return str(getattr(mat_obj, 'name', fallback_name))
+            except Exception:
+                return fallback_name
 
-        # populate compare tab if present
-        axs_comp = getattr(self, 'axs_comp', None)
-        can_comp = getattr(self, 'canvas_comp', None)
-        if outB is not None and axs_comp is not None:
-            for a in axs_comp:
-                a.clear()
-            # difference B - A
-            axs_comp[0].plot(t, outB['Ts'] - outA['Ts'], color='purple')
-            axs_comp[0].set_ylabel('Î”T_s (Â°C)')
-            axs_comp[1].plot(t, outB['Qstar'] - outA['Qstar'], color='orange')
-            axs_comp[1].set_ylabel('Î”K* (W/m2)')
-            axs_comp[2].plot(t, outB['L'] - outA['L'], color='magenta')
-            axs_comp[2].set_ylabel('Î”L* (W/m2)')
-            axs_comp[3].plot(t, outB['H'] - outA['H'], color='green')
-            axs_comp[3].set_ylabel('Î”H (W/m2)')
-            axs_comp[4].plot(t, outB['E'] - outA['E'], color='blue')
-            axs_comp[4].set_ylabel('Î”E (W/m2)')
-            axs_comp[5].plot(t, outB['G'] - outA['G'], color='saddlebrown')
-            axs_comp[5].set_ylabel('Î”G (W/m2)')
-            axs_comp[5].set_xlabel('Time (h)')
-            if can_comp is not None:
-                can_comp.draw()
+        def plot_ts(ax, out, title=None):
+            ax.clear()
+            ax.plot(t, out['Ts'] - 273.15, color='r')
+            ax.set_ylabel('T_surf (°C)')
+            ax.set_xlabel('Time (h)')
+            if title:
+                ax.set_title(title)
+
+        # ensure axes exist
+        try:
+            axs = self.axs_res
+        except Exception:
+            # fallback: old single-column layout
+            return
+
+        # If outB is present, create 2x2 filled layout; otherwise use left column
+        if outB is None:
+            # hide right column
+            for j in (0, 1):
+                try:
+                    axs[j][1].clear(); axs[j][1].set_visible(False)
+                except Exception:
+                    pass
+            # top-left: Ts A
+            matA_name = _mat_title(mA, self.matA.get() if getattr(self, 'matA', None) is not None else 'Material A')
+            plot_ts(axs[0][0], outA, title=matA_name)
+            # bottom-left: energy A
+            plot_energy(axs[1][0], outA, mA)
+        else:
+            # ensure both columns visible
+            for j in (0, 1):
+                try:
+                    axs[j][1].set_visible(True)
+                except Exception:
+                    pass
+            # left column = A, right column = B
+            matA_name = _mat_title(mA, self.matA.get() if getattr(self, 'matA', None) is not None else 'Material A')
+            matB_name = _mat_title(mB, self.matB.get() if getattr(self, 'matB', None) is not None else 'Material B')
+            plot_ts(axs[0][0], outA, title=matA_name)
+            plot_ts(axs[0][1], outB, title=matB_name)
+            plot_energy(axs[1][0], outA, mA)
+            plot_energy(axs[1][1], outB, mB)
+
+            # Ensure vertical axes match between A and B for easier comparison.
+            try:
+                # Surface temperature (convert to °C for limits)
+                tsA = np.asarray(outA.get('Ts', [])) - 273.15
+                tsB = np.asarray(outB.get('Ts', [])) - 273.15
+                if tsA.size and tsB.size:
+                    ymin = float(np.nanmin([np.nanmin(tsA), np.nanmin(tsB)]))
+                    ymax = float(np.nanmax([np.nanmax(tsA), np.nanmax(tsB)]))
+                    if ymax == ymin:
+                        pad = 0.5
+                    else:
+                        pad = 0.05 * (ymax - ymin)
+                    for a in (axs[0][0], axs[0][1]):
+                        try:
+                            a.set_ylim(ymin - pad, ymax + pad)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            try:
+                # Energy panel: include Kstar, Lstar, H, E (respecting evap), G
+                def _energy_bounds(o, mat_obj):
+                    tarr = o.get('t', o.get('times', None)) or []
+                    if len(tarr) == 0:
+                        return None
+                    K = np.asarray(o.get('Kstar', np.zeros_like(tarr)))
+                    L = np.asarray(o.get('Lstar', np.zeros_like(tarr)))
+                    H = np.asarray(o.get('H', np.zeros_like(tarr)))
+                    E = np.asarray(o.get('E', np.zeros_like(tarr)))
+                    if not self._mat_allows_evap(mat_obj):
+                        E = np.zeros_like(E)
+                    G = np.asarray(o.get('G', np.zeros_like(tarr)))
+                    allv = np.concatenate([K, L, H, E, G]) if any(v.size for v in (K, L, H, E, G)) else np.array([0.0])
+                    return float(np.nanmin(allv)), float(np.nanmax(allv))
+
+                bA = _energy_bounds(outA, mA)
+                bB = _energy_bounds(outB, mB)
+                if bA is not None and bB is not None:
+                    ymin = min(bA[0], bB[0])
+                    ymax = max(bA[1], bB[1])
+                    if ymax == ymin:
+                        pad = 1.0
+                    else:
+                        pad = 0.05 * (ymax - ymin)
+                    for a in (axs[1][0], axs[1][1]):
+                        try:
+                            a.set_ylim(ymin - pad, ymax + pad)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        try:
+            self.canvas_res.draw()
+        except Exception:
+            pass
+
+        # also populate the Term-by-term copy if present (3x2 grid). Each
+        # subplot will show both material A and B (when available) with a
+        # legend. The layout uses the first two rows for the core terms and
+        # the third row for some derived comparisons.
+        axs_tr = getattr(self, 'axs_temp_res', None)
+        can_tr = getattr(self, 'canvas_temp_res', None)
+        if axs_tr is not None:
+            try:
+                # New term-by-term layout: 3 rows x 2 columns (6 subplots)
+                # Each subplot shows both materials (A solid, B dashed) using
+                # the same color per component and different linestyles.
+                styleA = '-'
+                styleB = '--'
+                # component colors
+                color_ta = 'tab:blue'
+                color_kdown = 'tab:orange'
+                color_kup = 'tab:green'
+                color_knet = 'tab:blue'
+                color_ldown = 'tab:orange'
+                color_lup = 'tab:green'
+                color_lnet = 'tab:blue'
+                color_h = 'tab:blue'
+                color_e = 'tab:blue'
+                color_g = 'tab:blue'
+
+                def _safe(x, ref):
+                    try:
+                        return np.asarray(x)
+                    except Exception:
+                        return np.zeros_like(ref)
+
+                # mapping: (row, col) -> variable
+                # Row0 Col0: Ta, Col1: K components + net
+                # Row1 Col0: L components + net, Col1: H
+                # Row2 Col0: E, Col1: G
+
+
+                # TS subplot
+                ax_ta = axs_tr[0][0]
+                ax_ta.clear()
+                ax_ta.plot(outA['t'], outA['Ts'], color=color_ta, linestyle=styleA, label=f"A")
+                if outB is not None:
+                    ax_ta.plot(outB['t'], outB['Ts'], color=color_ta, linestyle=styleB, label=f"B")
+                ax_ta.set_ylabel('Ts (°C)')
+                ax_ta.set_xlabel('Time (h)')
+                ax_ta.grid(True, linestyle=':', alpha=0.4)
+                ax_ta.legend(loc='upper left', fontsize='small')
+
+                # K components subplot
+                ax_k = axs_tr[0][1]
+                ax_k.clear()
+                ax_k.plot(outA['t'], outA['Kstar'], color=color_knet, linestyle=styleA, label='K*')
+                ax_k.plot(outA['t'], outA['Kdown'], color=color_kdown, linestyle=styleA, label='Kdown')
+                ax_k.plot(outA['t'], -outA['Kup'], color=color_kup, linestyle=styleA, label='-Kup')
+                if outB is not None:
+                    ax_k.plot(outB['t'], outB['Kdown'], color=color_knet, linestyle=styleB)
+                    ax_k.plot(outB['t'], outB['Kdown'], color=color_kdown, linestyle=styleB)
+                    ax_k.plot(outB['t'], -outB['Kup'], color=color_kup, linestyle=styleB)
+                ax_k.set_ylabel('K (W/m2)')
+                ax_k.set_xlabel('Time (h)')
+                ax_k.grid(True, linestyle=':', alpha=0.4)
+                ax_k.legend(loc='upper left', fontsize='small')
+
+                # L components subplot (use same pattern as Ts/Kstar)
+                ax_l = axs_tr[1][0]
+                ax_l.clear()
+                # plot net longwave and components directly from outputs
+                ax_l.plot(outA['t'], outA['Lstar'], color=color_lnet, linestyle=styleA, label='L*')
+                ax_l.plot(outA['t'], outA['Ldown'], color=color_ldown, linestyle=styleA, label='Ldown')
+                ax_l.plot(outA['t'], -outA['Lup'], color=color_lup, linestyle=styleA, label='-Lup')
+                if outB is not None:
+                    ax_l.plot(outB['t'], outB['Lstar'], color=color_lnet, linestyle=styleB)
+                    ax_l.plot(outB['t'], outB['Ldown'], color=color_ldown, linestyle=styleB)
+                    ax_l.plot(outB['t'], -outB['Lup'], color=color_lup, linestyle=styleB)
+                ax_l.set_ylabel('L (W/m2)')
+                ax_l.set_xlabel('Time (h)')
+                ax_l.grid(True, linestyle=':', alpha=0.4)
+                ax_l.legend(loc='upper left', fontsize='small')
+
+                # H subplot (plot directly like Ts/Kstar)
+                ax_h = axs_tr[1][1]
+                ax_h.clear()
+                ax_h.plot(outA['t'], outA['H'], color=color_h, linestyle=styleA)
+                if outB is not None:
+                    ax_h.plot(outB['t'], outB['H'], color=color_h, linestyle=styleB)
+                ax_h.set_ylabel('H (W/m2)')
+                ax_h.set_xlabel('Time (h)')
+                ax_h.grid(True, linestyle=':', alpha=0.4)
+
+                # E subplot (plot directly like Ts/Kstar)
+                ax_e = axs_tr[2][0]
+                ax_e.clear()
+                E_A = outA['E'] if 'E' in outA else np.zeros_like(outA['t'])
+                if not self._mat_allows_evap(mA):
+                    E_A = np.zeros_like(E_A)
+                ax_e.plot(outA['t'], E_A, color=color_e, linestyle=styleA)
+                if outB is not None:
+                    E_B = outB['E'] if 'E' in outB else np.zeros_like(outB['t'])
+                    if not self._mat_allows_evap(mB):
+                        E_B = np.zeros_like(E_B)
+                    ax_e.plot(outB['t'], E_B, color=color_e, linestyle=styleB)
+                ax_e.set_ylabel('E (W/m2)')
+                ax_e.set_xlabel('Time (h)')
+                ax_e.grid(True, linestyle=':', alpha=0.4)
+
+                # G subplot (plot directly like Ts/Kstar)
+                ax_g = axs_tr[2][1]
+                ax_g.clear()
+                ax_g.plot(outA['t'], outA['G'], color=color_g, linestyle=styleA)
+                if outB is not None:
+                    ax_g.plot(outB['t'], outB['G'], color=color_g, linestyle=styleB)
+                ax_g.set_ylabel('G (W/m2)')
+                ax_g.set_xlabel('Time (h)')
+                ax_g.grid(True, linestyle=':', alpha=0.4)
+
+
+            except Exception:
+                # throw the exception but continue
+                tb = traceback.format_exc()
+
+            # redraw the Term-by-term canvas if present so the UI updates
+            try:
+                if can_tr is not None:
+                    try:
+                        can_tr.draw()
+                    except Exception:
+                        # fallback to attribute on self if available (guarded)
+                        try:
+                            cav = getattr(self, 'canvas_temp_res', None)
+                            if cav is not None:
+                                cav.draw()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         # update Temp & SEB panel (time index 0 default)
         self.update_tempseb(0)
