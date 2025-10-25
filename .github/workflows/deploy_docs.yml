@@ -1,43 +1,71 @@
-  - name: Set up Python
-    uses: actions/setup-python@v4
-    with:
-      python-version: ${{ env.PYTHON_VERSION }}
+name: Deploy MkDocs documentation
 
-  - name: Cache pip
-    uses: actions/cache@v4
-    with:
-      path: ~/.cache/pip
-      key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-      restore-keys: ${{ runner.os }}-pip-
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-  - name: Install dependencies
-    run: |
-      python -m pip install --upgrade pip
-      if [ -f requirements.txt ]; then
-        echo "Installing from requirements.txt"
-        python -m pip install -r requirements.txt
-      else
-        echo "No requirements.txt found — installing mkdocs and a common theme"
-        python -m pip install mkdocs mkdocs-material
-      fi
+env:
+  PYTHON_VERSION: '3.11'
 
-  - name: Sanity check (debug)
-    run: |
-      python --version
-      pip --version
-      # Show where mkdocs is; the script will still use python -m mkdocs to avoid PATH issues
-      which mkdocs || true
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
-  - name: Build MkDocs site
-    # Use python -m mkdocs so the site builds even if the mkdocs console script isn't on PATH
-    run: python -m mkdocs build --strict --clean
+jobs:
+  build-and-deploy:
+    name: Build site and publish
+    runs-on: ubuntu-latest
 
-  # Optional: deploy only when pushing to main
-  - name: Deploy to GitHub Pages
-    if: github.ref == 'refs/heads/main'
-    uses: peaceiris/actions-gh-pages@v4
-    with:
-      github_token: ${{ secrets.GITHUB_TOKEN }}
-      publish_dir: ./site
-      # optional: set user name/email if you want commits from an identity
-      # publish_branch: gh-pages
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            echo "Installing from requirements.txt"
+            python -m pip install -r requirements.txt
+          else
+            echo "No requirements.txt found — installing mkdocs and a common theme"
+            python -m pip install mkdocs mkdocs-material
+          fi
+
+      - name: Sanity check (debug)
+        run: |
+          python --version
+          pip --version
+          which mkdocs || true
+
+      - name: Build MkDocs site
+        run: python -m mkdocs build --strict --clean
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: ./site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
