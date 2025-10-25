@@ -2,11 +2,11 @@
 site_name: 'SEBdemo'
 site_description: 'Documentation for the SEBdemo 1D surface energy balance model'
 site_author: 'Maarten van Reeuwijk'
-site_url: 'https://SEBdemo.github.io/SEBdemo'
+site_url: 'https://mvreeuwijk.github.io/SEBdemo/'
 
 # Repository
 repo_name: 'SEBdemo'
-repo_url: 'https://github.com/SEBdemo/SEBdemo'
+repo_url: 'https://mvreeuwijk.github.io/SEBdemo/'
 edit_uri:  '' # disable 'Edit this page' option (https://www.mkdocs.org/user-guide/configuration/#edit_uri)
 
 # Copyright
