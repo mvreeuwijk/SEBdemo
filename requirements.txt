@@ -5,6 +5,3 @@ Pillow>=9.0
 customtkinter>=5.0
 mkdocs>=1.5
 mkdocs-material>=9.0
-
-# Optional for docs previews / local rendering
-mdx-truly-sane-pagination>=2.0
