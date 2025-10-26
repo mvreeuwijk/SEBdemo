@@ -39,6 +39,7 @@ DEFAULTS = {
     'tmax': 48*hour,            # simulation time in s
     'dt': 0.5*hour,             # time step for output in s
     'Nz': 100,                  # default number of vertical cells
+    'insulating_layer': True,  # whether to add insulating layer at bottom
 }
 
 def load_material(key: str, path: str = "materials.json") -> Material:
@@ -93,7 +94,7 @@ def kdown(t, Sb, trise, tset):
 
 
 
-def sebrhs(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
+def sebrhs_noins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
     """
     RHS that accepts a Material instance `mat` and uses an externally
     supplied `forcing` mapping for interpolation. The `forcing` object
@@ -136,8 +137,58 @@ def sebrhs(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
 
     f = -QG / k
     dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
+
     dTdt[-1] = 0
     return dTdt
+
+def sebrhs_ins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
+    """
+    RHS that accepts a Material instance `mat` and uses an externally
+    supplied `forcing` mapping for interpolation. The `forcing` object
+    must provide arrays for time, air temperature and shortwave (Kdown).
+    Latent heat is treated via Bowen ratio `beta` (E = Qh / beta).
+    """
+    # material properties
+    k = mat.k
+    C = mat.rho * mat.cp
+    alpha = mat.albedo
+    epsilon = mat.emissivity
+
+    kappa = k / C
+    nz = len(T)
+    dTdt = np.zeros_like(T)
+    for i in range(1, nz - 1):
+        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
+
+    # forcing is expected to be a mapping with keys 't', 'Ta', 'Kdown'
+    times_arr = np.asarray(forcing['t'], dtype=float)
+    _s0 = forcing.get('Kdown')
+    if _s0 is None:
+        _s0 = forcing.get('S0')
+    S0_arr = np.asarray(_s0)
+    Ta_arr = np.asarray(forcing['Ta'])
+    Ldown_arr = np.asarray(forcing.get('Ldown'))
+
+    # interpolate S0 (shortwave), Ta and Ldown at current time
+    Kdown = float(np.interp(t, times_arr, S0_arr))
+    Kup = alpha * Kdown
+    Lup = epsilon * sigma * T[0] ** 4
+
+    Ta = float(np.interp(t, times_arr, Ta_arr))
+    Ldown = float(np.interp(t, times_arr, Ldown_arr))
+
+    Qh = h * (T[0] - Ta)
+    QE = Qh / beta if beta != 0 else 0.0
+
+    QG = Kdown - Kup + Ldown - Lup - Qh - QE
+
+    f = -QG / k
+    dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
+
+    # insulating bottom boundary
+    dTdt[-1] = -2 * kappa / dx * ((T[-1] - T[-2]) / dx)
+    return dTdt
+
 
 def run_simulation(mat: Material,
                    params,
@@ -175,7 +226,11 @@ def run_simulation(mat: Material,
     # determine RHS and beta usage depending on evaporation capability
     # always pass a numeric beta to sebrhs; use 0.0 to disable evaporation
     beta_local = beta_default if mat.evaporation else 0.0
-    rhs = lambda t, T: sebrhs(t, T, mat, dz, forcing, hcoef, beta_local)
+
+    if DEFAULTS['insulating_layer']:
+        rhs = lambda t, T: sebrhs_ins(t, T, mat, dz, forcing, hcoef, beta_local)
+    else:
+        rhs = lambda t, T: sebrhs_noins(t, T, mat, dz, forcing, hcoef, beta_local)
 
     # determine solver evaluation times (t_eval) and t_span
     t_eval = np.arange(0.0, float(tmax) + dt, dt)

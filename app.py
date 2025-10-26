@@ -55,7 +55,7 @@ class App(ctk.CTk):
     # GUI-only defaults (keep UI-only flags separate from model DEFAULTS)
     GUIDEFAULTS = {
         'compare': False,
-        'speed': 1.0,
+        'speed': 2.0,
         'forcing_dt': 60.0,
     }
 
@@ -377,13 +377,14 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        # update animation layout (one or two panels)
+        # update animation layout (ensure static background matches new settings)
         try:
-            self.configure_animation_axes(two_panels=enabled)
+            # configure_animation_axes was removed; redraw static animation background
+            self.draw_anim_static()
         except Exception:
             try:
                 import logging
-                logging.getLogger(__name__).exception('configure_animation_axes failed')
+                logging.getLogger(__name__).exception('draw_anim_static failed')
             except Exception:
                 pass
 
@@ -453,32 +454,41 @@ class App(ctk.CTk):
         self.axs_temp_res = self.fig_temp_res.subplots(3, 2, squeeze=False)
 
     def _build_animation_tab(self):
-        """Create the Animation tab figure and controls."""
+        """Create the Animation tab figure and controls.
+
+        Controls are placed in a top bar; the figure is a single axes
+        (always one panel). Store the axes in `self.ax_anim` and keep the
+        FigureCanvas below the control bar.
+        """
+        # create figure and single axes for animation
         self.fig_anim = Figure(figsize=(8, 3))
         self.fig_anim.patch.set_facecolor(self._input_frame_bg)
-        self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
-        self.canvas_anim.get_tk_widget().pack(side='left', fill='both', expand=True)
+        self.ax_anim = self.fig_anim.subplots(1, 1)
 
+        # controls across the top
         self.anim_ctrl_frame = ctk.CTkFrame(self.tab_animation)
-        self.anim_ctrl_frame.pack(side='left', fill='y', padx=8, pady=6)
+        self.anim_ctrl_frame.pack(side='top', fill='x', padx=8, pady=6)
         self.time_label = ctk.CTkLabel(self.anim_ctrl_frame, text='Time: -- h')
-        self.time_label.grid(row=0, column=0)
+        self.time_label.grid(row=0, column=0, padx=(4, 8))
         # animation speed: prefer GUI-only default
         try:
             sv = float(self.GUIDEFAULTS.get('speed', 1.0))
         except Exception:
             sv = 1.0
         self.speed_var = ctk.DoubleVar(value=sv)
-        ctk.CTkLabel(self.anim_ctrl_frame, text='Speed:').grid(row=1, column=0, sticky='w')
-        ctk.CTkEntry(self.anim_ctrl_frame, textvariable=self.speed_var, width=80).grid(row=2, column=0)
+        ctk.CTkLabel(self.anim_ctrl_frame, text='Speed:').grid(row=0, column=1, sticky='w')
+        ctk.CTkEntry(self.anim_ctrl_frame, textvariable=self.speed_var, width=80).grid(row=0, column=2, padx=(4, 8))
         self.btn_start = ctk.CTkButton(self.anim_ctrl_frame, text='Start', command=self.toggle_animation, state='disabled')
-        self.btn_start.grid(row=3, column=0, pady=(8, 0))
+        self.btn_start.grid(row=0, column=3, padx=(8, 4))
+
+        # place the figure below the controls
+        self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
+        self.canvas_anim.get_tk_widget().pack(side='top', fill='both', expand=True)
 
         # animation state placeholders
         self.animating = False
         self.anim_idx = 0
         self.anim_data = None
-        self.axes_anim = tuple()
 
     def _build_about_tab(self):
         """Create the About tab and display contents of about.md.
@@ -939,8 +949,10 @@ class App(ctk.CTk):
                 else:
                     messagebox.showerror('Invalid input', msg)
                     return False
+                    
             # on success, store canonical value
             self._params[kk if kk not in ('thickness_A', 'thickness_B') else kk] = res
+            self._params[kk] = res
         return True
 
     # --- simple tooltip implementation (CTk-styled when possible, fallback to Tk)
@@ -1250,8 +1262,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         try:
-            # update animation layout
-            self.configure_animation_axes(two_panels=enabled)
+            # update animation background/layout for new compare state
+            self.draw_anim_static()
         except Exception:
             pass
 
@@ -1262,63 +1274,124 @@ class App(ctk.CTk):
     # handled when running the simulation; Material B controls are enabled/disabled
     # during initial setup below.
 
-    # --- Animation axes management ---
-    def configure_animation_axes(self, two_panels: bool = False):
-        # destroy old figure and recreate based on two_panels
-        # if canvas_anim doesn't exist yet (e.g. called during init), skip destroy
-        try:
-            cav = getattr(self, 'canvas_anim', None)
-            if cav is not None:
-                try:
-                    cav.get_tk_widget().destroy()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        if two_panels:
-            fig, axes = plt.subplots(1, 2, figsize=(8, 3), sharey=False)
-            self.axes_anim = (axes[0], axes[1])
-        else:
-            fig, axes = plt.subplots(1, 1, figsize=(8, 3), sharey=False)
-            self.axes_anim = (axes,)
-        self.fig_anim = fig
-        self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
-        self.canvas_anim.get_tk_widget().pack(side='left', fill='both', expand=True)
-        # redraw static background
-        self.draw_anim_static()
+    # NOTE: configure_animation_axes removed — animation tab now uses a single
+    # axes stored in `self.ax_anim`. Calls that previously invoked
+    # configure_animation_axes have been replaced with `draw_anim_static()`.
 
     def draw_anim_static(self):
         # draw a simple background showing material depths
         # guard: avoid drawing if app is closed
         if getattr(self, '_closed', False):
             return
-        if not getattr(self, 'axes_anim', None):
+        # require that self.ax_anim exists
+        if not getattr(self, 'ax_anim', None):
             return
         if hasattr(self, 'winfo_exists') and not self.winfo_exists():
             return
-        ax = self.axes_anim[0]
+        ax = self.ax_anim
         ax.clear()
+
+        # determine thickness to show; prefer max of A and B when comparing
+        thickA = float(self.thickA.get())
+        thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
+        thick = max(thickA, thickB, 0.1)
+
+        # y-limits per request: [-thickness, thickness/2]
+        ymin = -thick
+        ymax = thick / 2.0
+        ax.set_ylim(ymin, ymax)
+
+        # X limits: if we have anim_data, set to full range of profile temps
         try:
-            thickA = float(self.thickA.get())
+            anim = getattr(self, 'anim_data', None)
+            if anim and anim.get('A') is not None:
+                outA = anim.get('A')
+                tps = np.asarray(outA.get('T_profiles', [])) - 273.15
+                xmin = float(np.nanmin(tps)) if tps.size else -10.0
+                xmax = float(np.nanmax(tps)) if tps.size else 40.0
+                # include B if present
+                if anim.get('B') is not None and bool(self.compare_var.get()):
+                    outB = anim.get('B')
+                    tpsb = np.asarray(outB.get('T_profiles', [])) - 273.15
+                    if tpsb.size:
+                        xmin = min(xmin, float(np.nanmin(tpsb)))
+                        xmax = max(xmax, float(np.nanmax(tpsb)))
+                # pad slightly and ensure left limit shows cold temps (at least -10°C)
+                span = max(0.5, xmax - xmin)
+                xmin_pad = xmin - 0.05 * span
+                xmin_pad = min(xmin_pad, -10.0)
+                ax.set_xlim(xmin_pad, xmax + 0.05 * span)
+            else:
+                ax.set_xlim(0, 30)
         except Exception:
-            thickA = 0.2
-        ax.set_ylim(-thickA - 0.1, 0.1)
-        ax.set_xlim(0, 1)
-        ax.invert_yaxis()
-        ax.set_title('Material A (left)')
-        # right axis label if present
-        if len(self.axes_anim) > 1:
-            ax2 = self.axes_anim[1]
             try:
-                thickB = float(self.thickB.get())
+                ax.set_xlim(0, 30)
             except Exception:
-                thickB = 0.2
-            ax2.clear()
-            ax2.set_ylim(-thickB - 0.1, 0.1)
-            ax2.set_xlim(0, 1)
-            ax2.invert_yaxis()
-            ax2.set_title('Material B (right)')
-        self.canvas_anim.draw()
+                pass
+
+        # soil patch: light grey behind the temperature profile from surface (0) down to -thick
+        try:
+            ax.axhspan(ymin=-thick, ymax=0.0, facecolor='lightgrey', zorder=0, alpha=0.5)
+        except Exception:
+            pass
+
+        # solid surface line at z=0
+        ax.axhline(y=0.0, color='k', linewidth=1.0, zorder=3)
+
+        # if comparing and thicknesses differ, draw a dash-dot line at the bottom of
+        # the thinner layer to denote its base
+        if self.compare_var.get():
+            thickA = float(self.thickA.get())
+            thickB = float(self.thickB.get())
+            # choose the larger for the filled patch (already used); show a dash-dot
+            # at the bottom of the smaller (if different by more than eps)
+            if abs(thickA - thickB) > 1e-6:
+                other_thick = min(thickA, thickB)
+                ax.axhline(y=-other_thick, color='k', linestyle='-.', linewidth=1.0, zorder=3)
+
+        ax.set_xlabel('Temperature (°C)')
+        ax.set_ylabel('Depth (m)')
+        # initial title (time will be updated each frame) — show time in axes title
+        try:
+            ax.set_title('Time: -- h')
+        except Exception:
+            pass
+
+        # draw initial temperature profile (time index 0) if available so the
+        # user sees the initial condition immediately when the screen loads.
+        try:
+            anim = getattr(self, 'anim_data', None)
+            if anim and anim.get('A') is not None:
+                outA = anim.get('A')
+                if 'T_profiles' in outA and len(outA['T_profiles']):
+                    z = outA.get('z', None)
+                    if z is not None:
+                        try:
+                            ax.plot(outA['T_profiles'][0] - 273.15, z, '-r', alpha=0.9, zorder=2, label='A')
+                        except Exception:
+                            pass
+                # plot B initial if present and comparing
+                if anim.get('B') is not None and bool(getattr(self, 'compare_var', ctk.BooleanVar(value=False)).get()):
+                    outB = anim.get('B')
+                    if 'T_profiles' in outB and len(outB['T_profiles']):
+                        zB = outB.get('z', None)
+                        if zB is not None:
+                            try:
+                                ax.plot(outB['T_profiles'][0] - 273.15, zB, '-b', alpha=0.9, zorder=2, label='B')
+                            except Exception:
+                                pass
+                try:
+                    ax.legend(loc='upper right', fontsize='small')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # keep surface at top (invert so 0 is near the top)
+        # keep normal y-axis orientation so depth increases downward
+        try:
+            self.canvas_anim.draw()
+        except Exception:
+            pass
 
     # --- Animation control ---
     def toggle_animation(self):
@@ -1350,25 +1423,122 @@ class App(ctk.CTk):
         matA = anim_data.get('A_mat')
         outB = anim_data.get('B') if self.compare_var.get() else None
         matB = anim_data.get('B_mat') if self.compare_var.get() else None
-        times = outA['times']
+        times = outA['t']
         i = int(self.anim_idx % len(times))
-        # draw left
-        axL = self.axes_anim[0]
-        axL.clear()
-        axL.plot(outA['T_profiles'][i] - 273.15, outA['z'], '-r')
-        axL.invert_yaxis()
-        # right if present
-        if len(self.axes_anim) > 1 and outB is not None:
-            axR = self.axes_anim[1]
-            axR.clear()
-            axR.plot(outB['T_profiles'][i] - 273.15, outB['z'], '-b')
-            axR.invert_yaxis()
-        # draw simple SEB arrows near surface on each axis
-        self.draw_seb_arrows(axL, outA, i, mat=matA)
-        if len(self.axes_anim) > 1 and outB is not None:
-            self.draw_seb_arrows(self.axes_anim[1], outB, i, mat=matB)
+        ax = getattr(self, 'ax_anim', None)
+        if ax is None:
+            self.animating = False
+            return
+        ax.clear()
 
-        self.canvas_anim.draw()
+        thickA = float(self.thickA.get())
+        thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
+        thick = max(thickA, thickB, 0.1)
+
+        ymin = -thick
+        ymax = thick / 2.0
+
+        # compute x-limits from data (A and optionally B)
+        xmin, xmax = None, None
+        try:
+            tA = np.asarray(outA.get('T_profiles', [])) - 273.15
+            if tA.size:
+                xmin = float(np.nanmin(tA))
+                xmax = float(np.nanmax(tA))
+        except Exception:
+            pass
+        if outB is not None:
+            try:
+                tB = np.asarray(outB.get('T_profiles', [])) - 273.15
+                if tB.size:
+                    val_min = float(np.nanmin(tB))
+                    val_max = float(np.nanmax(tB))
+                    xmin = val_min if xmin is None else min(xmin, val_min)
+                    xmax = val_max if xmax is None else max(xmax, val_max)
+            except Exception:
+                pass
+        if xmin is None or xmax is None or not np.isfinite(xmin) or not np.isfinite(xmax):
+            xmin, xmax = -10.0, 30.0
+        # pad a little and ensure left bound at least -10°C so cold profiles are visible
+        span = max(0.5, xmax - xmin)
+        xmin = xmin - 0.05 * span
+        xmin = min(xmin, -10.0)
+        xmax = xmax + 0.05 * span
+
+        # draw soil patch first (so it's behind) and set limits
+        try:
+            ax.axhspan(ymin=-thick, ymax=0.0, facecolor='lightgrey', zorder=0, alpha=0.5)
+        except Exception:
+            pass
+
+        # solid surface line at z=0
+        ax.axhline(y=0.0, color='k', linewidth=1.0, zorder=3)
+        # dash-dot line for bottom of thinner layer when comparing
+        if self.compare_var.get():
+            thickA = float(self.thickA.get())
+            thickB = float(self.thickB.get())
+            # choose the larger for the filled patch (already used); show a dash-dot
+            # at the bottom of the smaller (if different by more than eps)
+            if abs(thickA - thickB) > 1e-6:
+                other_thick = min(thickA, thickB)
+                ax.axhline(y=-other_thick, color='k', linestyle='-.', linewidth=1.0, zorder=3)
+ 
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        try:
+            ax.set_ylim(ymin, ymax)
+        except Exception:
+            pass
+
+        # plot A on top of the patch
+        try:
+            ax.plot(outA['T_profiles'][i] - 273.15, outA['z'], '-r', label='A', zorder=2)
+        except Exception:
+            pass
+        # plot B (on same axes) if present
+        if outB is not None:
+            try:
+                ax.plot(outB['T_profiles'][i] - 273.15, outB['z'], '-b', label='B', zorder=2)
+            except Exception:
+                pass
+
+        # axis labels and orientation
+        ax.set_xlabel('Temperature (°C)')
+        ax.set_ylabel('Depth (m)')
+        # keep normal y-axis orientation so depth increases downward
+        # legend
+        try:
+            ax.legend(loc='upper right', fontsize='small')
+        except Exception:
+            pass
+
+        # draw SEB arrows for A and B (A first so arrows overlay nicely)
+        try:
+            self.draw_seb_arrows(ax, outA, i, mat=matA)
+        except Exception:
+            pass
+        if outB is not None:
+            try:
+                self.draw_seb_arrows(ax, outB, i, mat=matB)
+            except Exception:
+                pass
+
+        # update time label (show hours if available) and figure title
+        try:
+            tval = float(times[i]) / float(hour)
+            self.time_label.configure(text=f'Time: {tval:.2f} h')
+            try:
+                # put time in the axes title
+                ax.set_title(f'Time: {tval:.2f} h')
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        try:
+            self.canvas_anim.draw()
+        except Exception:
+            pass
 
         self.anim_idx += 1
         # schedule next (store id so it can be cancelled)
@@ -1382,40 +1552,119 @@ class App(ctk.CTk):
     # draw SEB arrows helper (reusable)
     def draw_seb_arrows(self, ax, out, idx, mat: Optional[object] = None):
         # draw labeled arrows in axes-fraction coordinates so they appear at
-        # a consistent location regardless of data limits. Direction:
-        #  - Q* (net shortwave) : downward when incoming
-        #  - L (longwave net)    : downward when net incoming
+        # a consistent location regardless of data limits. Direction mapping:
+        #  - K* (net shortwave) : downward when incoming
+        #  - L* (net longwave)  : downward when net incoming
+        #  - G (ground)         : downward when positive into the ground
         #  - H (sensible)       : upward when positive (surface->air)
         #  - E (latent)         : upward when positive
-        #  - G (ground)         : downward when positive into the ground
         Kstar = out['Kstar'][idx]
         Lstar = out['Lstar'][idx]
         H = out['H'][idx]
         E = out['E'][idx]
         G = out['G'][idx]
-        vals = [Kstar, Lstar, H, E, G]
+        # order values to match desired label order: K*, L*, G, H, E
+        vals = [Kstar, Lstar, G, H, E]
         maxv = max(1.0, max(abs(v) for v in vals))
-        # vertical positions (axes fraction) for arrows
-        y_positions = [0.85, 0.72, 0.59, 0.46, 0.33]
-        labels = ['Q*', 'L*', 'H', 'E', 'G']
-        colors = ['orange', 'magenta', 'green', 'blue', 'saddlebrown']
+        # Arrange arrows side-by-side at the surface (z=0) in data coordinates.
+        # If this `out` corresponds to Material A, center the arrows at T=0°C
+        # so they appear around x=0; if it's Material B, place them on the
+        # right-hand side. Use a tighter horizontal packing so arrows are
+        # visually closer together.
+        # show arrows in requested order: K*, L*, G, H, E
+        labels = ['K*', 'L*', 'G', 'H', 'E']
+        # map colors to the same order
+        colors = ['orange', 'magenta', 'saddlebrown', 'green', 'blue']
+        try:
+            x0, x1 = ax.get_xlim()
+            y0, y1 = ax.get_ylim()
+            x_width = x1 - x0 if (x1 - x0) != 0 else 1.0
+            y_height = y1 - y0 if (y1 - y0) != 0 else 1.0
+        except Exception:
+            x0, x1 = 0.0, 1.0
+            y0, y1 = 0.0, 1.0
+            x_width = 1.0
+            y_height = 1.0
+
+        # tighter packing than before
+        block_frac = 0.04  # 4% of axis width per arrow
+        right_margin_frac = 0.02
+
+        centers = []
+        # Decide whether this out is Material A by identity (fallback to False)
+        try:
+            ad = getattr(self, 'anim_data', None)
+            isA = (ad is not None and out is ad.get('A'))
+        except Exception:
+            isA = False
+
+        thickA = float(self.thickA.get())
+        thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
+        thick = thickA if isA else thickB
+
+        if isA:
+            # center arrows around x=0 (data coordinate). Use small dx spacing
+            dx = block_frac * x_width
+            mid = 0.0
+            # centers left-to-right around mid
+            for k in range(len(labels)):
+                cx = mid + (k - (len(labels) - 1) / 2.0) * dx
+                centers.append(cx)
+        else:
+            # place arrows near the right edge, arranged right-to-left
+            for k in range(len(labels)):
+                center_frac = 1.0 - right_margin_frac - (k + 0.5) * block_frac
+                cx = x0 + center_frac * x_width
+                centers.append(cx)
+
         for k, v in enumerate(vals):
-            y = y_positions[k]
+            # skip near-zero terms to avoid clutter (no arrow or descriptor)
+            eps = 1e-6
+            if abs(v) <= eps:
+                continue
+            # arrow length as fraction of axis height, scaled by flux magnitude
             frac = 0.08 * (abs(v) / maxv)
-            if k in (0, 1, 4):
-                # draw arrow pointing downwards (incoming into surface)
-                start = (0.92, y)
-                end = (0.92, y - frac)
-                va = 'top'
+            # make arrows 25% longer as requested
+            dy = frac * 1.25 * y_height
+            cx = centers[k]
+            # start at surface z=0 in data coordinates
+            start = (cx, 0.0)
+            # determine direction based on sign and term type
+            # For K*, L*, G (indices 0,1,2): positive -> downward, negative -> upward
+            # For H, E (indices 3,4): positive -> upward, negative -> downward
+            if k in (0, 1, 2):
+                end = (cx, -abs(dy) if v >= 0 else abs(dy))
+                va = 'top' if v >= 0 else 'bottom'
             else:
-                # draw arrow pointing upwards
-                start = (0.92, y)
-                end = (0.92, y + frac)
-                va = 'bottom'
-            ax.annotate('', xy=end, xytext=start, xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
-            # label and value
-            txt = f"{labels[k]} {v:+.0f} W/m2" if k != 0 else f"{labels[k]} {v:+.0f} W/m2"
-            ax.text(0.80, y, txt, transform=ax.transAxes, ha='left', va=va, fontsize=9, color=colors[k])
+                end = (cx, abs(dy) if v >= 0 else -abs(dy))
+                va = 'bottom' if v >= 0 else 'top'
+            # draw arrow in data coordinates so it anchors at z=0
+            try:
+                ax.annotate('', xy=end, xytext=start, xycoords='data', textcoords='data', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
+            except Exception:
+                # fallback to axes-fraction drawing
+                fx = (cx - x0) / x_width if x_width != 0 else 0.9
+                ay = 0.5
+                ay2 = ay - (0.05 if end[1] < 0 else -0.05)
+                ax.annotate('', xy=(fx, ay), xytext=(fx, ay2), xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
+
+            # label and value: place slightly offset vertically from a fixed baseline near the tip
+            try:
+                txt = f"{labels[k]} {v:+.0f} W/m2"
+                label_offset = 0.02 * y_height
+                tip_label_y = end[1] - label_offset if end[1] < 0 else end[1] + label_offset
+                ax.text(cx, tip_label_y, txt, ha='center', va='center', fontsize=9, color=colors[k])
+            except Exception:
+                pass
+
+        # place material label above the arrow group at z = 0.4 * thickness
+        try:
+            mat_label_y = 0.4 * thick
+            group_x = sum(centers) / len(centers) if centers else (x0 + x1) / 2.0
+            mat_name = 'Material A' if isA else 'Material B'
+            ax.text(group_x, mat_label_y, mat_name, ha='center', va='bottom', fontsize=10, fontweight='bold')
+        except Exception:
+            pass
 
     def update_tempseb(self, idx: int):
         # draw temperature profile and SEB arrows at given time index (index into out['times'])
@@ -1428,7 +1677,37 @@ class App(ctk.CTk):
         self.ax_temp.plot(outA['T_profiles'][idx] - 273.15, outA['z'], '-r', label='A')
         if outB is not None:
             self.ax_temp.plot(outB['T_profiles'][idx] - 273.15, outB['z'], '-b', label='B')
-        self.ax_temp.invert_yaxis()
+        # set y-limits consistent with animation view: [-thickness, thickness/2]
+        try:
+            thickA = float(self.thickA.get())
+        except Exception:
+            thickA = 0.2
+        try:
+            thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
+        except Exception:
+            thickB = 0.0
+        thick = max(thickA, thickB, 0.1)
+        try:
+            self.ax_temp.set_ylim(-thick, thick / 2.0)
+        except Exception:
+            pass
+        # draw soil patch and surface line similar to animation view
+        try:
+            self.ax_temp.axhspan(ymin=-thick, ymax=0.0, facecolor='lightgrey', zorder=0, alpha=0.5)
+        except Exception:
+            pass
+        try:
+            self.ax_temp.axhline(y=0.0, color='k', linewidth=1.0, zorder=3)
+        except Exception:
+            pass
+        try:
+            if getattr(self, 'compare_var', None) and bool(self.compare_var.get()):
+                if abs(thickA - thickB) > 1e-6:
+                    other_thick = min(thickA, thickB)
+                    self.ax_temp.axhline(y=-other_thick, color='k', linestyle='-.', linewidth=1.0, zorder=3)
+        except Exception:
+            pass
+        # keep normal y-axis orientation so depth increases downward
         self.ax_temp.set_xlabel('Temperature (Â°C)')
         self.ax_temp.set_ylabel('Depth (m)')
         # draw arrows for A on same axis (offset x slightly)
@@ -1525,7 +1804,7 @@ class App(ctk.CTk):
                 'beta': float(p.get('beta', MODEL_DEFAULTS['beta'])),
                 'h': float(p.get('h', MODEL_DEFAULTS['h'])),
                 'forcing': forcing,
-                'thickness': float(p.get('thickness_A', MODEL_DEFAULTS['thickness'])),
+                'thickness': float(p['thickness_A'])
             }
             mA = load_material(self.matA.get())
             # run_simulation expects (mat, params, dt, tmax) where params is a dict
@@ -1535,7 +1814,7 @@ class App(ctk.CTk):
             if self.compare_var.get():
                 mB = load_material(self.matB.get())
                 params_b = params.copy()
-                params_b['thickness'] = float(p.get('thickness_B', MODEL_DEFAULTS['thickness']))
+                params_b['thickness'] = float(p['thickness_B'])
                 outB = run_simulation(mB, params_b, dt, tmax)
 
             # store for animation (include material metadata so we know if
@@ -1740,7 +2019,7 @@ class App(ctk.CTk):
                     a.set_ylim(ymin - pad, ymax + pad)
 
             def _energy_bounds(o, mat_obj):
-                tarr = o.get('t', o.get('times', None)) or []
+                tarr = o['t']
                 if len(tarr) == 0:
                     return None
                 K = np.asarray(o.get('Kstar', np.zeros_like(tarr)))

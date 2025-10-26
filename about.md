@@ -15,7 +15,7 @@ Key features
   profiles with SEB arrows.
 - Programmatic entry-point: `run_simulation(mat, params, dt, tmax)`.
 
-[Project site](https://mvreeuwijk.github.io/SEBdemo/)
+For more information, see the project site [https://mvreeuwijk.github.io/SEBdemo/](https://mvreeuwijk.github.io/SEBdemo/)
 
 Contact & license
 
