@@ -15,9 +15,6 @@ Key features
   profiles with SEB arrows.
 - Programmatic entry-point: `run_simulation(mat, params, dt, tmax)`.
 
-For more information, see the project site [https://mvreeuwijk.github.io/SEBdemo/](https://mvreeuwijk.github.io/SEBdemo/)
+For more information, see the project site [https://github.com/mvreeuwijk/SEBdemo](https://github.com/mvreeuwijk/SEBdemo)
 
-Contact & license
-
-- Maintainer: [maintainer@example.org](mailto:maintainer@example.org)
-- License: This project is released under the GNU General Public License v3.0 (GPL-3.0) — see `docs/LICENSE.md` for the full text.
+License: This project is released under the GNU General Public License v3.0 (GPL-3.0) — see `docs/LICENSE.md` for the full text.
