@@ -14,7 +14,13 @@ Run (desktop)
    python app.py
 
 Defaults
+
 - The app defaults to a 48-hour simulation length. Use the input field to change it.
 
 Notes
+
 - This is a simplified educational model for demonstration in lectures.
+
+License
+
+- This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See `docs/LICENSE.md` for details.
