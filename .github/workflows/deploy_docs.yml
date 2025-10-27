@@ -1,7 +1,11 @@
-# Recommended: build, upload and deploy in the same job so deploy always uses the artifact from the same run.
+# Build, upload and deploy MkDocs site in a single job and avoid duplicate runs/races.
 on:
   push:
     branches: [ main ]
+    # Ignore changes to generated site or workflow files so automated commits don't retrigger the workflow
+    paths-ignore:
+      - 'site/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 env:
@@ -14,6 +18,13 @@ permissions:
 
 jobs:
   build-and-deploy:
+    # Skip runs that were triggered by the GitHub Actions bot to avoid self-triggered duplicates
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    # Prevent overlapping runs on the same branch (cancels previous runs)
+    concurrency:
+      group: pages-${{ github.ref }}
+      cancel-in-progress: true
+
     name: Build site and publish
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -21,6 +32,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Print run info (debug)
+        run: |
+          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo "GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
+          echo "GITHUB_RUN_ATTEMPT: $GITHUB_RUN_ATTEMPT"
+          echo "GITHUB_ACTOR: $GITHUB_ACTOR"
+          echo "GITHUB_SHA: $GITHUB_SHA"
+          if [ -n "${{ github.event.head_commit.message || '' }}" ]; then
+            echo "Commit message: ${{ github.event.head_commit.message }}"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -45,14 +67,6 @@ jobs:
             python -m pip install mkdocs mkdocs-material
           fi
 
-      - name: Sanity check (debug)
-        run: |
-          python --version
-          pip --version
-          which mkdocs || true
-          echo "Listing repo root:"
-          ls -la
-
       - name: Prepare site directory (mkdocs or docs fallback)
         id: prepare_site
         run: |
@@ -76,10 +90,24 @@ jobs:
           ls -la "${BUILD_DIR}"
           echo "publish_dir=${BUILD_DIR}" >> $GITHUB_OUTPUT
 
+      - name: Show artifacts list (before upload) [debug]
+        run: |
+          echo "Artifacts for this run (before upload):"
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            | python -m json.tool || true
+
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
           path: ${{ steps.prepare_site.outputs.publish_dir }}
+
+      - name: Show artifacts list (after upload) [debug]
+        run: |
+          echo "Artifacts for this run (after upload):"
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            | python -m json.tool || true
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1
