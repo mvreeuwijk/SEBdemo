@@ -63,6 +63,9 @@ class App(ctk.CTk):
     _tooltip_win: Optional[tk.Toplevel] = None
     _tooltip_after_id: Optional[str] = None
     _lbl_thickB_color_default: Optional[str] = None
+    # optional UI widgets that may or may not be created depending on layout
+    # Narrow the type so static checkers know `configure` exists on non-None
+    time_label: Optional[ctk.CTkLabel] = None
     def __init__(self) -> None:
         ctk.set_appearance_mode('System')
         ctk.set_default_color_theme('blue')
@@ -468,8 +471,16 @@ class App(ctk.CTk):
         # controls across the top
         self.anim_ctrl_frame = ctk.CTkFrame(self.tab_animation)
         self.anim_ctrl_frame.pack(side='top', fill='x', padx=8, pady=6)
-        self.time_label = ctk.CTkLabel(self.anim_ctrl_frame, text='Time: -- h')
-        self.time_label.grid(row=0, column=0, padx=(4, 8))
+        # configure spacer columns so the control group is centered
+        try:
+            # create 7 columns and give the outermost columns weight so controls center
+            for _c in range(7):
+                self.anim_ctrl_frame.grid_columnconfigure(_c, weight=0)
+            self.anim_ctrl_frame.grid_columnconfigure(0, weight=1)
+            self.anim_ctrl_frame.grid_columnconfigure(6, weight=1)
+        except Exception:
+            pass
+        # Time label omitted per UI preference (no time next to Start/Reset)
         # animation speed: prefer GUI-only default
         try:
             sv = float(self.GUIDEFAULTS.get('speed', 1.0))
@@ -480,6 +491,9 @@ class App(ctk.CTk):
         ctk.CTkEntry(self.anim_ctrl_frame, textvariable=self.speed_var, width=80).grid(row=0, column=2, padx=(4, 8))
         self.btn_start = ctk.CTkButton(self.anim_ctrl_frame, text='Start', command=self.toggle_animation, state='disabled')
         self.btn_start.grid(row=0, column=3, padx=(8, 4))
+        # reset button to set animation timer back to t=0
+        self.btn_reset = ctk.CTkButton(self.anim_ctrl_frame, text='Reset', command=self._reset_animation, state='disabled')
+        self.btn_reset.grid(row=0, column=4, padx=(4, 4))
 
         # place the figure below the controls
         self.canvas_anim = FigureCanvasTkAgg(self.fig_anim, master=self.tab_animation)
@@ -1036,6 +1050,7 @@ class App(ctk.CTk):
                 k_val = g('k')
                 rho = g('rho')
                 cp = g('cp')
+                C_val = mat.rho * mat.cp
                 alb = g('albedo')
                 emis = g('emissivity')
                 evap = False
@@ -1047,7 +1062,9 @@ class App(ctk.CTk):
                 except Exception:
                     evap = False
 
-                lines.append(f"k={k_val} W/mK  rho={rho} kg/m3  cp={cp} J/kgK")
+                # show volumetric heat capacity in MJ/m^3/K (i.e. C/1e6)
+                C_mj = float(C_val) / 1e6
+                lines.append(f"C=rho*cp = {C_mj:.3f} MJ/m^3/K  k={k_val} W/mK")
                 lines.append(f"albedo={alb}  emissivity={emis}  evap={evap}")
         except Exception:
             lines.append('(error fetching properties)')
@@ -1404,6 +1421,48 @@ class App(ctk.CTk):
             # start loop
             self.animate_step()
 
+    def _reset_animation(self):
+        """Reset animation timer/index back to t=0 and redraw the static frame.
+
+        If animation is currently running, it will continue from t=0 on the
+        next scheduled step. This method is safe to call when no anim_data is
+        present (no-op).
+        """
+        anim = getattr(self, 'anim_data', None)
+        if anim is None:
+            return
+        # reset index and redraw static background + initial profile
+        try:
+            self.anim_idx = 0
+            # update time label (if available)
+            t0 = None
+            outA = anim.get('A')
+            if outA is not None and 't' in outA and len(outA['t']):
+                t0 = float(outA['t'][0]) / float(hour)
+                try:
+                    tl = getattr(self, 'time_label', None)
+                    if tl is not None:
+                        tl.configure(text=f'Time: {t0:.2f} h')
+                except Exception:
+                    pass
+            # redraw static background which also plots initial profile when present
+            try:
+                self.draw_anim_static()
+            except Exception:
+                pass
+            # ensure the axes title reflects the reset time (draw_anim_static
+            # sets a placeholder title); update it now if we computed t0
+            try:
+                if t0 is not None and getattr(self, 'ax_anim', None) is not None:
+                    try:
+                        self.ax_anim.set_title(f'Time: {t0:.2f} h')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def animate_step(self):
         # guard: stop if app closed or animation flag cleared
         if getattr(self, '_closed', False):
@@ -1523,17 +1582,26 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        # update time label (show hours if available) and figure title
+        # update time (show hours if available) and figure title
+        tval = None
         try:
             tval = float(times[i]) / float(hour)
-            self.time_label.configure(text=f'Time: {tval:.2f} h')
+        except Exception:
+            tval = None
+        # update optional time_label widget if present (don't make this
+        # failure prevent updating the axes title)
+        if tval is not None:
+            try:
+                tl = getattr(self, 'time_label', None)
+                if tl is not None:
+                    tl.configure(text=f'Time: {tval:.2f} h')
+            except Exception:
+                pass
             try:
                 # put time in the axes title
                 ax.set_title(f'Time: {tval:.2f} h')
             except Exception:
                 pass
-        except Exception:
-            pass
 
         try:
             self.canvas_anim.draw()
@@ -1692,14 +1760,8 @@ class App(ctk.CTk):
         if outB is not None:
             self.ax_temp.plot(outB['T_profiles'][idx] - 273.15, outB['z'], '-b', label='B')
         # set y-limits consistent with animation view: [-thickness, thickness/2]
-        try:
-            thickA = float(self.thickA.get())
-        except Exception:
-            thickA = 0.2
-        try:
-            thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
-        except Exception:
-            thickB = 0.0
+        thickA = float(self.thickA.get())
+        thickB = float(self.thickB.get()) if getattr(self, 'compare_var', None) and bool(self.compare_var.get()) else 0.0
         thick = max(thickA, thickB, 0.1)
         try:
             self.ax_temp.set_ylim(-thick, thick / 2.0)
@@ -1857,6 +1919,11 @@ class App(ctk.CTk):
             self.temp_slider.configure(to=max(1, nsteps - 1), number_of_steps=max(1, nsteps - 1))
             self.temp_slider.set(0)
             self.btn_start.configure(state='normal')
+            try:
+                # enable reset button once a simulation is available
+                self.after(0, lambda: self.btn_reset.configure(state='normal'))
+            except Exception:
+                pass
             self.after(0, lambda: setattr(self, '_status_text', 'Simulation complete'))
         except Exception as exc:
             # print full traceback to terminal so users/developers can see details

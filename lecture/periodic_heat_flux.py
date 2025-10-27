@@ -17,15 +17,15 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from scipy.integrate import solve_ivp
 
-# --- Standalone small model pieces copied/adapted from model.py ---
-k =  0.3                # thermal conductivity (W/m/K)
+# material properties for a dry sandy soil
+k =  0.3                 # thermal conductivity (W/m/K)
 rho = 1600               # density (kg/m^3)
 cp = 800                 # specific heat capacity (J/kg/K)
 albedo = 0.17            # surface albedo
 emissivity = 0.95        # surface emissivity
 sigma = 5.670374419e-8   # Stefan-Boltzmann constant (W/m^2/K^4)
 thickness = 0.5          # layer thickness (m)
-Nz = 80                  # vertical resolution (cells)
+Nz = 100                 # vertical resolution (cells)
 T0 = 293.15              # initial temperature (K)
 hour = 3600              # seconds in an hour
 T = 24 * hour            # period (s)
@@ -44,8 +44,8 @@ def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
     of air temperature or latent heat (beta) — those should be folded into
     Qgfun if needed.
     """
-    C = float(rho) * float(cp)
-    kappa = float(k) / C
+    C = rho * cp
+    kappa = k / C
 
     nz = len(T)
     dTdt = np.zeros_like(T)
@@ -64,13 +64,10 @@ def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
     return dTdt
 
 # define the prescribed net ground heat-flux function Qgfun(t)
-# here we directly impose a sinusoidal ground flux (W/m2). The RHS no
-# longer computes radiation — Qgfun should supply the net QG(t).
+# here we directly impose a sinusoidal ground flux (W/m2). 
 Qgfun = lambda t: Q0 * np.sin(omega * t)
 
-# --- Build material and grid --------------------------------------------
-# material parameters are provided as primitive variables (k, rho, cp, albedo, emissivity)
-
+# build grid
 dz = thickness / (Nz - 1)
 z = np.linspace(0.0, -thickness, Nz)
 
