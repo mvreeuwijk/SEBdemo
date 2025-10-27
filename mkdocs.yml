@@ -17,39 +17,59 @@ theme:
   name: 'material'
   language: 'en'
   palette:
-    primary: 'light-blue'
-    accent: 'pink'
-  font:
-    text: 'Roboto'
-    code: 'Roboto Mono'
+    # Project information
+    site_name: 'SEBdemo'
+    site_description: 'Documentation for the SEBdemo 1D surface energy balance model'
+    site_author: 'Maarten van Reeuwijk'
+    site_url: 'https://mvreeuwijk.github.io/SEBdemo/'
 
-# Extensions
-markdown_extensions:
-  - pymdownx.arithmatex
-  - pymdownx.betterem:
-      smart_enable: all
-  - pymdownx.caret
-  - pymdownx.critic
-  - pymdownx.details
-  - pymdownx.emoji:
-      emoji_generator: !!python/name:pymdownx.emoji.to_svg
-  - pymdownx.inlinehilite
-  - pymdownx.magiclink
-  - pymdownx.mark
-  - pymdownx.smartsymbols
-  - pymdownx.superfences
-  - pymdownx.tasklist:
-      custom_checkbox: true
-  - pymdownx.tilde
-  - codehilite:
-      guess_lang: false
-  - toc:
-      permalink: true
-  - footnotes
-  - pymdownx.mark
-  - pymdownx.details
-  - pymdownx.superfences
-  - pymdownx.tasklist
+    # Repository
+    repo_name: 'SEBdemo'
+    repo_url: 'https://mvreeuwijk.github.io/SEBdemo/'
+    edit_uri:  '' # disable 'Edit this page' option (https://www.mkdocs.org/user-guide/configuration/#edit_uri)
 
-extra_javascript:
-  - 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML'
+    # Copyright
+    copyright: 'Maarten van Reeuwijk'
+
+    # Configuration
+    theme:
+      name: 'material'
+      language: 'en'
+      palette:
+        primary: 'light-blue'
+        accent: 'pink'
+      font:
+        text: 'Roboto'
+        code: 'Roboto Mono'
+
+    # Extensions
+    markdown_extensions:
+      - pymdownx.arithmatex
+      - pymdownx.betterem:
+          smart_enable: all
+      - pymdownx.caret
+      - pymdownx.critic
+      - pymdownx.details
+      - pymdownx.emoji:
+          emoji_generator: !!python/name:pymdownx.emoji.to_svg
+      - pymdownx.inlinehilite
+      - pymdownx.magiclink
+      - pymdownx.mark
+      - pymdownx.smartsymbols
+      - pymdownx.superfences
+      - pymdownx.tasklist:
+          custom_checkbox: true
+      - pymdownx.tilde
+      - codehilite:
+          guess_lang: false
+      - toc:
+          permalink: true
+      - footnotes
+      - pymdownx.mark
+      - pymdownx.details
+      - pymdownx.superfences
+      - pymdownx.tasklist
+
+    # Math rendering: use MathJax v3 (works with pymdownx.arithmatex)
+    extra_javascript:
+      - 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'
