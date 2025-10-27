@@ -42,4 +42,8 @@ Where to read more
 - `model.md` — concise description of the module-level API and example usage
 - `governing_equations.md` — PDE, boundary conditions, flux parameterisations and discretisation notes
 
-If you'd like, I can add a short example script under `examples/` showing a programmatic comparison between two materials and producing the standard Results plot.
+## How to cite
+
+If you use this software in published work, please cite the project. A short citation is:
+
+SEB Roof Material Comparator ([https://github.com/mvreeuwijk/SEBdemo](https://github.com/mvreeuwijk/SEBdemo))

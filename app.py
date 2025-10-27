@@ -1657,9 +1657,23 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        # place material label above the arrow group at z = 0.4 * thickness
+        # place material label above the arrow group at a height that is
+        # consistent for both A and B (use the axes y-limits which were set
+        # based on the maximum thickness). This ensures labels for A and B
+        # are plotted at the same vertical position even when thicknesses
+        # differ.
         try:
-            mat_label_y = 0.4 * thick
+            # use current y-limits to infer the largest thickness shown
+            try:
+                ay0, ay1 = ax.get_ylim()
+            except Exception:
+                ay0, ay1 = y0, y1
+            # ay0 is usually the negative depth baseline (e.g. -thickness)
+            if ay0 is not None and ay0 < 0:
+                total_thick = abs(ay0)
+            else:
+                total_thick = abs(ay1) if ay1 is not None else abs(thick)
+            mat_label_y = 0.4 * total_thick
             group_x = sum(centers) / len(centers) if centers else (x0 + x1) / 2.0
             mat_name = 'Material A' if isA else 'Material B'
             ax.text(group_x, mat_label_y, mat_name, ha='center', va='bottom', fontsize=10, fontweight='bold')
@@ -1763,6 +1777,18 @@ class App(ctk.CTk):
 
     # --- Run simulation and populate results + animation data ---
     def _on_run(self):
+        # Ensure the latest inputs are validated and stored before starting
+        # the background run. _validate_and_store reads current tkinter
+        # variable values (no need to rely on focus-out) and will show an
+        # error dialog if values are invalid. If validation fails do not
+        # start the simulation thread.
+        try:
+            ok = self._validate_and_store()
+        except Exception:
+            ok = False
+        if not ok:
+            return
+
         t = threading.Thread(target=self._run_thread, daemon=True)
         t.start()
 
@@ -2071,11 +2097,14 @@ class App(ctk.CTk):
             # TS subplot
             ax_ta = axs_tr[0][0]
             ax_ta.clear()
+            # use time in hours for plotting
+            tA = outA['t'] / hour
+            tB = outB['t'] / hour if outB is not None else None
             # plot surface temperature (Ts) in °C
-            ax_ta.plot(outA['t'], outA['Ta'] - 273.15, color=color_kdown, linestyle=styleA, label='Ta')
-            ax_ta.plot(outA['t'], outA['Ts'] - 273.15, color=color_ta, linestyle=styleA, label='Ts A')
+            ax_ta.plot(tA, outA['Ta'] - 273.15, color=color_kdown, linestyle=styleA, label='Ta')
+            ax_ta.plot(tA, outA['Ts'] - 273.15, color=color_ta, linestyle=styleA, label='Ts A')
             if outB is not None:
-                ax_ta.plot(outB['t'], outB['Ts'] - 273.15, color=color_ta, linestyle=styleB, label='Ts B')
+                ax_ta.plot(tB, outB['Ts'] - 273.15, color=color_ta, linestyle=styleB, label='Ts B')
             ax_ta.set_ylabel('Ts (°C)')
             ax_ta.set_xlabel('Time (h)')
             ax_ta.grid(True, linestyle=':', alpha=0.4)
@@ -2084,13 +2113,13 @@ class App(ctk.CTk):
             # K components subplot
             ax_k = axs_tr[0][1]
             ax_k.clear()
-            ax_k.plot(outA['t'], outA['Kstar'], color=color_knet, linestyle=styleA, label='K*')
-            ax_k.plot(outA['t'], outA['Kdown'], color=color_kdown, linestyle=styleA, label='Kdown')
-            ax_k.plot(outA['t'], -outA['Kup'], color=color_kup, linestyle=styleA, label='-Kup')
+            ax_k.plot(tA, outA['Kstar'], color=color_knet, linestyle=styleA, label='K*')
+            ax_k.plot(tA, outA['Kdown'], color=color_kdown, linestyle=styleA, label='Kdown')
+            ax_k.plot(tA, -outA['Kup'], color=color_kup, linestyle=styleA, label='-Kup')
             if outB is not None:
-                ax_k.plot(outB['t'], outB['Kdown'], color=color_knet, linestyle=styleB)
-                ax_k.plot(outB['t'], outB['Kdown'], color=color_kdown, linestyle=styleB)
-                ax_k.plot(outB['t'], -outB['Kup'], color=color_kup, linestyle=styleB)
+                ax_k.plot(tB, outB['Kdown'], color=color_knet, linestyle=styleB)
+                ax_k.plot(tB, outB['Kdown'], color=color_kdown, linestyle=styleB)
+                ax_k.plot(tB, -outB['Kup'], color=color_kup, linestyle=styleB)
             ax_k.set_ylabel('K (W/m2)')
             ax_k.set_xlabel('Time (h)')
             ax_k.grid(True, linestyle=':', alpha=0.4)
@@ -2099,13 +2128,13 @@ class App(ctk.CTk):
             # L components subplot
             ax_l = axs_tr[1][0]
             ax_l.clear()
-            ax_l.plot(outA['t'], outA['Lstar'], color=color_lnet, linestyle=styleA, label='L*')
-            ax_l.plot(outA['t'], outA['Ldown'], color=color_ldown, linestyle=styleA, label='Ldown')
-            ax_l.plot(outA['t'], -outA['Lup'], color=color_lup, linestyle=styleA, label='-Lup')
+            ax_l.plot(tA, outA['Lstar'], color=color_lnet, linestyle=styleA, label='L*')
+            ax_l.plot(tA, outA['Ldown'], color=color_ldown, linestyle=styleA, label='Ldown')
+            ax_l.plot(tA, -outA['Lup'], color=color_lup, linestyle=styleA, label='-Lup')
             if outB is not None:
-                ax_l.plot(outB['t'], outB['Lstar'], color=color_lnet, linestyle=styleB)
-                ax_l.plot(outB['t'], outB['Ldown'], color=color_ldown, linestyle=styleB)
-                ax_l.plot(outB['t'], -outB['Lup'], color=color_lup, linestyle=styleB)
+                ax_l.plot(tB, outB['Lstar'], color=color_lnet, linestyle=styleB)
+                ax_l.plot(tB, outB['Ldown'], color=color_ldown, linestyle=styleB)
+                ax_l.plot(tB, -outB['Lup'], color=color_lup, linestyle=styleB)
             ax_l.set_ylabel('L (W/m2)')
             ax_l.set_xlabel('Time (h)')
             ax_l.grid(True, linestyle=':', alpha=0.4)
@@ -2114,9 +2143,9 @@ class App(ctk.CTk):
             # H subplot
             ax_h = axs_tr[1][1]
             ax_h.clear()
-            ax_h.plot(outA['t'], outA['H'], color=color_h, linestyle=styleA)
+            ax_h.plot(tA, outA['H'], color=color_h, linestyle=styleA)
             if outB is not None:
-                ax_h.plot(outB['t'], outB['H'], color=color_h, linestyle=styleB)
+                ax_h.plot(tB, outB['H'], color=color_h, linestyle=styleB)
             ax_h.set_ylabel('H (W/m2)')
             ax_h.set_xlabel('Time (h)')
             ax_h.grid(True, linestyle=':', alpha=0.4)
@@ -2127,12 +2156,12 @@ class App(ctk.CTk):
             E_A = outA['E'] if 'E' in outA else np.zeros_like(outA['t'])
             if not self._mat_allows_evap(mA):
                 E_A = np.zeros_like(E_A)
-            ax_e.plot(outA['t'], E_A, color=color_e, linestyle=styleA)
+            ax_e.plot(tA, E_A, color=color_e, linestyle=styleA)
             if outB is not None:
                 E_B = outB['E'] if 'E' in outB else np.zeros_like(outB['t'])
                 if not self._mat_allows_evap(mB):
                     E_B = np.zeros_like(E_B)
-                ax_e.plot(outB['t'], E_B, color=color_e, linestyle=styleB)
+                ax_e.plot(tB, E_B, color=color_e, linestyle=styleB)
             ax_e.set_ylabel('E (W/m2)')
             ax_e.set_xlabel('Time (h)')
             ax_e.grid(True, linestyle=':', alpha=0.4)
@@ -2140,9 +2169,9 @@ class App(ctk.CTk):
             # G subplot
             ax_g = axs_tr[2][1]
             ax_g.clear()
-            ax_g.plot(outA['t'], outA['G'], color=color_g, linestyle=styleA)
+            ax_g.plot(tA, outA['G'], color=color_g, linestyle=styleA)
             if outB is not None:
-                ax_g.plot(outB['t'], outB['G'], color=color_g, linestyle=styleB)
+                ax_g.plot(tB, outB['G'], color=color_g, linestyle=styleB)
             ax_g.set_ylabel('G (W/m2)')
             ax_g.set_xlabel('Time (h)')
             ax_g.grid(True, linestyle=':', alpha=0.4)

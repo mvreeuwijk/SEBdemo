@@ -60,6 +60,6 @@
     "cp": 900,
     "albedo": 0.65,
     "emissivity": 0.88,
-    "evaporation": true
+    "evaporation": false
   }
 }
