@@ -191,7 +191,7 @@ class App(ctk.CTk):
         # command toggles Material B controls immediately
         self.cb_compare = ctk.CTkCheckBox(cmp_frame, text='', variable=self.compare_var, command=self._on_compare_toggle)
         self.cb_compare.grid(row=0, column=0, sticky='w', padx=(0, 6))
-        ctk.CTkLabel(cmp_frame, text='Compare with second material:').grid(row=0, column=1, sticky='w')
+        ctk.CTkLabel(cmp_frame, text='Compare with second material').grid(row=0, column=1, sticky='w')
 
         # Frame for Material B (aligned with A)
         frameB = ctk.CTkFrame(frm, fg_color='transparent')

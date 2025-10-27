@@ -17,4 +17,4 @@ Key features
 
 For more information, see the project site [https://github.com/mvreeuwijk/SEBdemo](https://github.com/mvreeuwijk/SEBdemo)
 
-License: This project is released under the GNU General Public License v3.0 (GPL-3.0) — see `docs/LICENSE.md` for the full text.
+License: This project is released under the GNU General Public License v3.0 (GPL-3.0).

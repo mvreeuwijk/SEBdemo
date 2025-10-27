@@ -1,5 +1,4 @@
-name: Deploy MkDocs documentation
-
+# Recommended: build, upload and deploy in the same job so deploy always uses the artifact from the same run.
 on:
   push:
     branches: [ main ]
@@ -59,7 +58,6 @@ jobs:
         run: |
           set -e
           BUILD_DIR=site
-          # Prefer building with mkdocs if config present
           if [ -f mkdocs.yml ] || [ -f mkdocs.yaml ]; then
             echo "mkdocs config found; building site with mkdocs"
             python -m mkdocs build --strict --clean
@@ -83,13 +81,5 @@ jobs:
         with:
           path: ${{ steps.prepare_site.outputs.publish_dir }}
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build-and-deploy
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1
