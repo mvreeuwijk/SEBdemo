@@ -53,10 +53,10 @@ def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
         dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
 
     # obtain imposed net ground flux from user-supplied function
-    QG = float(Qgfun(t))
+    QG = Qgfun(t)
 
     # map QG to an equivalent ghost-node value f = -QG / k
-    f = -QG / float(k)
+    f = -QG / k
     dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
 
     # insulating bottom boundary

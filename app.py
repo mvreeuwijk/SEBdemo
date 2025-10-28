@@ -1633,7 +1633,34 @@ class App(ctk.CTk):
         G = out['G'][idx]
         # order values to match desired label order: K*, L*, G, H, E
         vals = [Kstar, Lstar, G, H, E]
-        maxv = max(1.0, max(abs(v) for v in vals))
+        # Compute a global maximum flux across available animation data (A and B)
+        # so arrow lengths are scaled consistently relative to the largest
+        # heat/energy flux present in the current simulation.
+        maxv = 1.0
+        try:
+            ad = getattr(self, 'anim_data', None)
+            if ad is not None:
+                mags = []
+                for key in ('A', 'B'):
+                    out_all = ad.get(key)
+                    if out_all is None:
+                        continue
+                    for term in ('Kstar', 'Lstar', 'G', 'H', 'E'):
+                        try:
+                            arr = np.asarray(out_all.get(term, []))
+                            if arr.size:
+                                mags.append(np.nanmax(np.abs(arr)))
+                        except Exception:
+                            pass
+                if mags:
+                    maxv = float(max(1.0, max(mags)))
+                else:
+                    # fallback to current-frame max if no arrays available
+                    maxv = max(1.0, max(abs(v) for v in vals))
+            else:
+                maxv = max(1.0, max(abs(v) for v in vals))
+        except Exception:
+            maxv = max(1.0, max(abs(v) for v in vals))
         # Arrange arrows side-by-side at the surface (z=0) in data coordinates.
         # If this `out` corresponds to Material A, center the arrows at T=0°C
         # so they appear around x=0; if it's Material B, place them on the
@@ -1654,7 +1681,9 @@ class App(ctk.CTk):
             x_width = 1.0
             y_height = 1.0
 
-        # tighter packing than before
+        # We'll draw arrows in axes-fraction coordinates so their on-screen
+        # size is stable across frames regardless of changing data limits.
+        # Define packing in fraction-of-axis-width units.
         block_frac = 0.04  # 4% of axis width per arrow
         right_margin_frac = 0.02
 
@@ -1674,12 +1703,12 @@ class App(ctk.CTk):
             # center arrows around x=0 (data coordinate). Use small dx spacing
             dx = block_frac * x_width
             mid = 0.0
-            # centers left-to-right around mid
+            # centers left-to-right around mid (in data coordinates)
             for k in range(len(labels)):
                 cx = mid + (k - (len(labels) - 1) / 2.0) * dx
                 centers.append(cx)
         else:
-            # place arrows near the right edge, arranged right-to-left
+            # place arrows near the right edge, arranged right-to-left (in data coords)
             for k in range(len(labels)):
                 center_frac = 1.0 - right_margin_frac - (k + 0.5) * block_frac
                 cx = x0 + center_frac * x_width
@@ -1690,38 +1719,43 @@ class App(ctk.CTk):
             eps = 1e-6
             if abs(v) <= eps:
                 continue
-            # arrow length as fraction of axis height, scaled by flux magnitude
-            frac = 0.08 * (abs(v) / maxv)
-            # make arrows 25% longer as requested
-            dy = frac * 1.25 * y_height
-            cx = centers[k]
-            # start at surface z=0 in data coordinates
-            start = (cx, 0.0)
-            # determine direction based on sign and term type
-            # For K*, L*, G (indices 0,1,2): positive -> downward, negative -> upward
-            # For H, E (indices 3,4): positive -> upward, negative -> downward
-            if k in (0, 1, 2):
-                end = (cx, -abs(dy) if v >= 0 else abs(dy))
-                va = 'top' if v >= 0 else 'bottom'
-            else:
-                end = (cx, abs(dy) if v >= 0 else -abs(dy))
-                va = 'bottom' if v >= 0 else 'top'
-            # draw arrow in data coordinates so it anchors at z=0
-            try:
-                ax.annotate('', xy=end, xytext=start, xycoords='data', textcoords='data', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
-            except Exception:
-                # fallback to axes-fraction drawing
-                fx = (cx - x0) / x_width if x_width != 0 else 0.9
-                ay = 0.5
-                ay2 = ay - (0.05 if end[1] < 0 else -0.05)
-                ax.annotate('', xy=(fx, ay), xytext=(fx, ay2), xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
+            # arrow length as fraction of axis height in axes-fraction coords,
+            # scaled by flux magnitude so relative lengths still reflect magnitudes.
+            # Multiply by 2.0 to make the maximum size two times larger as requested.
+            arrow_frac = 0.08 * (abs(v) / maxv) * 1.25 * 4.0
 
-            # label and value: place slightly offset vertically from a fixed baseline near the tip
+            # convert arrow center x (data coord) and surface y=0 to axes-fraction coords
+            try:
+                disp = ax.transData.transform((centers[k], 0.0))
+                fx, fy = ax.transAxes.inverted().transform(disp)
+            except Exception:
+                # fallback: place near right/top if transform fails
+                fx = 0.9 if not isA else 0.1
+                fy = 0.5
+
+            # determine direction: for indices 0..2 positive -> downward (decrease fy),
+            # for 3..4 positive -> upward (increase fy)
+            direction = -1.0 if k in (0, 1, 2) else 1.0
+            if v < 0:
+                direction *= -1.0
+
+            start_frac = (fx, fy)
+            end_frac = (fx, fy + direction * arrow_frac)
+
+            # draw arrow in axes-fraction coords so screen size is stable
+            try:
+                ax.annotate('', xy=end_frac, xytext=start_frac, xycoords='axes fraction', textcoords='axes fraction', arrowprops=dict(arrowstyle='-|>', color=colors[k], lw=2))
+            except Exception:
+                pass
+
+            # label and value: use axes-fraction coordinates as well
             try:
                 txt = f"{labels[k]} {v:+.0f} W/m2"
-                label_offset = 0.02 * y_height
-                tip_label_y = end[1] - label_offset if end[1] < 0 else end[1] + label_offset
-                ax.text(cx, tip_label_y, txt, ha='center', va='center', fontsize=9, color=colors[k])
+                # place the label slightly beyond the arrow tip in axes-fraction units
+                label_offset_frac = 0.02
+                tip_x_frac = fx
+                tip_y_frac = end_frac[1] + ( -label_offset_frac if end_frac[1] < fy else label_offset_frac )
+                ax.text(tip_x_frac, tip_y_frac, txt, ha='center', va='center', fontsize=9, color=colors[k], transform=ax.transAxes)
             except Exception:
                 pass
 
@@ -1743,7 +1777,26 @@ class App(ctk.CTk):
                 total_thick = abs(ay1) if ay1 is not None else abs(thick)
             mat_label_y = 0.4 * total_thick
             group_x = sum(centers) / len(centers) if centers else (x0 + x1) / 2.0
-            mat_name = 'Material A' if isA else 'Material B'
+            # Prefer the provided `mat` metadata (from run_simulation) to label
+            # the group; fall back to the UI selection variables `matA`/`matB`.
+            mat_label = None
+            try:
+                if mat is not None:
+                    if isinstance(mat, Mapping):
+                        mat_label = mat.get('name') or mat.get('key') or mat.get('label')
+                    else:
+                        mat_label = getattr(mat, 'name', None) or getattr(mat, 'key', None) or getattr(mat, 'label', None)
+            except Exception:
+                mat_label = None
+            if not mat_label:
+                try:
+                    mat_label = self.matA.get() if isA else self.matB.get()
+                except Exception:
+                    mat_label = 'Material A' if isA else 'Material B'
+
+            # Format as requested: "A. Name" or "B. Name"
+            prefix = 'A.' if isA else 'B.'
+            mat_name = f"{prefix} {mat_label}"
             ax.text(group_x, mat_label_y, mat_name, ha='center', va='bottom', fontsize=10, fontweight='bold')
         except Exception:
             pass
