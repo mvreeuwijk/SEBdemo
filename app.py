@@ -54,9 +54,9 @@ class App(ctk.CTk):
 
     # GUI-only defaults (keep UI-only flags separate from model DEFAULTS)
     GUIDEFAULTS = {
-        'compare': False,
-        'speed': 2.0,
-        'forcing_dt': 60.0,
+        'compare': False,           # switch for compare mode
+        'speed': 2.0,               # speed factor for animations
+        'forcing_dt': 60.0,         # time step for forcing data (s)
     }
 
     # annotate some optional attributes to quiet static checkers (Pylance)
@@ -1398,7 +1398,7 @@ class App(ctk.CTk):
                             except Exception:
                                 pass
                 try:
-                    ax.legend(loc='upper right', fontsize='small')
+                    ax.legend(loc='lower left', fontsize='small')
                 except Exception:
                     pass
         except Exception:
@@ -1565,9 +1565,9 @@ class App(ctk.CTk):
         ax.set_xlabel('Temperature (°C)')
         ax.set_ylabel('Depth (m)')
         # keep normal y-axis orientation so depth increases downward
-        # legend
+        # legend (place in bottom-left corner for the animation view)
         try:
-            ax.legend(loc='upper right', fontsize='small')
+            ax.legend(loc='lower left', fontsize='small')
         except Exception:
             pass
 
