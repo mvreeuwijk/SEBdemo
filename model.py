@@ -25,21 +25,21 @@ class Material:
 
 # Module-level defaults so model can run standalone without importing `app`.
 DEFAULTS = {
-    'thickness': 1.0,           # layer thickness in m
+    'thickness': 1.0,           # layer thickness (m)
     'T0': 293.15,               # initial soil temperature (K)
-    'Sb': 1000.0,               # peak shortwave in W/m2
-    'trise': 7*hour,            # sunrise time in s
-    'tset': 21*hour,            # sunset time in s
-    'Ldown': 350.0,             # downwelling longwave in W/m2
-    'sigma': 5.670374419e-8,    # Stefan-Boltzmann constant
-    'Ta_mean': 293.15,          # mean air temperature in K
-    'Ta_amp': 5.0,              # amplitude of air temperature variation in K
-    'h': 10.0,                  # heat-transfer coefficient in W/m2/K
-    'beta': 0.5,                # Bowen ratio
-    'tmax': 48*hour,            # simulation time in s
-    'dt': 0.5*hour,             # time step for output in s
+    'Sb': 1000.0,               # peak shortwave (W/m2)
+    'trise': 7*hour,            # sunrise time (s)
+    'tset': 21*hour,            # sunset time (s)
+    'Ldown': 350.0,             # downwelling longwave (W/m2)
+    'sigma': 5.670374419e-8,    # Stefan-Boltzmann constant (W/m2/K4)
+    'Ta_mean': 293.15,          # mean air temperature (K)
+    'Ta_amp': 5.0,              # amplitude of air temperature variation (K)
+    'h': 20.0,                  # heat-transfer coefficient (W/m2/K)
+    'beta': 0.5,                # Bowen ratio (-)
+    'tmax': 48*hour,            # simulation time (s)
+    'dt': 0.5*hour,             # time step for output (s)
     'Nz': 100,                  # default number of vertical cells
-    'insulating_layer': True,  # whether to add insulating layer at bottom
+    'insulating_layer': True,   # switch for bottom boundary condition
 }
 
 def load_material(key: str, path: str = "materials.json") -> Material:
@@ -108,27 +108,24 @@ def sebrhs_noins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.67037441
     epsilon = mat.emissivity
 
     kappa = k / C
-    nz = len(T)
+    Nz = len(T)
     dTdt = np.zeros_like(T)
-    for i in range(1, nz - 1):
+    for i in range(1, Nz - 1):
         dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
 
     # forcing is expected to be a mapping with keys 't', 'Ta', 'Kdown'
     times_arr = np.asarray(forcing['t'], dtype=float)
-    _s0 = forcing.get('Kdown')
-    if _s0 is None:
-        _s0 = forcing.get('S0')
-    S0_arr = np.asarray(_s0)
+    S0_arr = np.asarray(forcing['Kdown'])
     Ta_arr = np.asarray(forcing['Ta'])
     Ldown_arr = np.asarray(forcing.get('Ldown'))
 
     # interpolate S0 (shortwave), Ta and Ldown at current time
-    Kdown = float(np.interp(t, times_arr, S0_arr))
+    Kdown = np.interp(t, times_arr, S0_arr)
     Kup = alpha * Kdown
     Lup = epsilon * sigma * T[0] ** 4
 
-    Ta = float(np.interp(t, times_arr, Ta_arr))
-    Ldown = float(np.interp(t, times_arr, Ldown_arr))
+    Ta = np.interp(t, times_arr, Ta_arr)
+    Ldown = np.interp(t, times_arr, Ldown_arr)
 
     Qh = h * (T[0] - Ta)
     QE = Qh / beta if beta != 0 else 0.0
@@ -162,20 +159,17 @@ def sebrhs_ins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e
 
     # forcing is expected to be a mapping with keys 't', 'Ta', 'Kdown'
     times_arr = np.asarray(forcing['t'], dtype=float)
-    _s0 = forcing.get('Kdown')
-    if _s0 is None:
-        _s0 = forcing.get('S0')
-    S0_arr = np.asarray(_s0)
+    S0_arr = np.asarray(forcing['Kdown'])
     Ta_arr = np.asarray(forcing['Ta'])
     Ldown_arr = np.asarray(forcing.get('Ldown'))
 
     # interpolate S0 (shortwave), Ta and Ldown at current time
-    Kdown = float(np.interp(t, times_arr, S0_arr))
+    Kdown = np.interp(t, times_arr, S0_arr)
     Kup = alpha * Kdown
     Lup = epsilon * sigma * T[0] ** 4
 
-    Ta = float(np.interp(t, times_arr, Ta_arr))
-    Ldown = float(np.interp(t, times_arr, Ldown_arr))
+    Ta = np.interp(t, times_arr, Ta_arr)
+    Ldown = np.interp(t, times_arr, Ldown_arr)
 
     Qh = h * (T[0] - Ta)
     QE = Qh / beta if beta != 0 else 0.0
@@ -215,12 +209,12 @@ def run_simulation(mat: Material,
     thickness = float(params['thickness'])
 
     # discretisation: allow override via params (fall back to DEFAULTS)
-    Nz = int(params.get('Nz', DEFAULTS.get('Nz', 100)))
+    Nz = DEFAULTS['Nz']
     dz = thickness / (Nz - 1)
     z = np.linspace(0.0, -thickness, Nz)
 
     # prepare initial condition: allow overriding initial temperature via params
-    T_init = float(params.get('T0', DEFAULTS.get('T0', 293.15)))
+    T_init = float(DEFAULTS['T0'])
     T0 = np.ones(Nz) * T_init
 
     # determine RHS and beta usage depending on evaporation capability

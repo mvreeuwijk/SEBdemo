@@ -10,6 +10,7 @@ This file implements three requested features:
 The implementation is deliberately incremental and testable. After this
 change `import app` should succeed and the UI will support compare/animation.
 """
+
 from __future__ import annotations
 
 import importlib

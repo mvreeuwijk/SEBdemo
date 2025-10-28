@@ -21,13 +21,13 @@ from scipy.integrate import solve_ivp
 k =  0.3                 # thermal conductivity (W/m/K)
 rho = 1600               # density (kg/m^3)
 cp = 800                 # specific heat capacity (J/kg/K)
-albedo = 0.17            # surface albedo
-emissivity = 0.95        # surface emissivity
+albedo = 0.17            # surface albedo (-)
+emissivity = 0.95        # surface emissivity (-)
 sigma = 5.670374419e-8   # Stefan-Boltzmann constant (W/m^2/K^4)
 thickness = 0.5          # layer thickness (m)
 Nz = 100                 # vertical resolution (cells)
 T0 = 293.15              # initial temperature (K)
-hour = 3600              # seconds in an hour
+hour = 3600              # seconds in an hour (s)
 T = 24 * hour            # period (s)
 omega = 2.0 * np.pi / T  # angular frequency (rad/s)
 Q0 = 200.0               # amplitude of imposed surface heat flux (W/m2)
@@ -47,9 +47,9 @@ def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
     C = rho * cp
     kappa = k / C
 
-    nz = len(T)
+    Nz = len(T)
     dTdt = np.zeros_like(T)
-    for i in range(1, nz - 1):
+    for i in range(1, Nz - 1):
         dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
 
     # obtain imposed net ground flux from user-supplied function
