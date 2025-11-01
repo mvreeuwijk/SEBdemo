@@ -94,7 +94,7 @@ def kdown(t, Sb, trise, tset):
 
 
 
-def sebrhs_noins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
+def sebrhs_noins(t, T, mat: Material, dz, forcing, h, beta=0.0, sigma=5.670374419e-8):
     """
     RHS that accepts a Material instance `mat` and uses an externally
     supplied `forcing` mapping for interpolation. The `forcing` object
@@ -111,7 +111,7 @@ def sebrhs_noins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.67037441
     Nz = len(T)
     dTdt = np.zeros_like(T)
     for i in range(1, Nz - 1):
-        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
+        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dz ** 2
 
     # forcing is expected to be a mapping with keys 't', 'Ta', 'Kdown'
     times_arr = np.asarray(forcing['t'], dtype=float)
@@ -133,12 +133,12 @@ def sebrhs_noins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.67037441
     QG = Kdown - Kup + Ldown - Lup - Qh - QE
 
     f = -QG / k
-    dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
+    dTdt[0] = 2 * kappa / dz * ((T[1] - T[0]) / dz - f)
 
     dTdt[-1] = 0
     return dTdt
 
-def sebrhs_ins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e-8):
+def sebrhs_ins(t, T, mat: Material, dz, forcing, h, beta=0.0, sigma=5.670374419e-8):
     """
     RHS that accepts a Material instance `mat` and uses an externally
     supplied `forcing` mapping for interpolation. The `forcing` object
@@ -152,10 +152,10 @@ def sebrhs_ins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e
     epsilon = mat.emissivity
 
     kappa = k / C
-    nz = len(T)
+    Nz = len(T)
     dTdt = np.zeros_like(T)
-    for i in range(1, nz - 1):
-        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
+    for i in range(1, Nz - 1):
+        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dz ** 2
 
     # forcing is expected to be a mapping with keys 't', 'Ta', 'Kdown'
     times_arr = np.asarray(forcing['t'], dtype=float)
@@ -177,10 +177,10 @@ def sebrhs_ins(t, T, mat: Material, dx, forcing, h, beta=0.0, sigma=5.670374419e
     QG = Kdown - Kup + Ldown - Lup - Qh - QE
 
     f = -QG / k
-    dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
+    dTdt[0] = 2 * kappa / dz * ((T[1] - T[0]) / dz - f)
 
     # insulating bottom boundary
-    dTdt[-1] = -2 * kappa / dx * ((T[-1] - T[-2]) / dx)
+    dTdt[-1] = -2 * kappa / dz * ((T[-1] - T[-2]) / dz)
     return dTdt
 
 
@@ -208,10 +208,10 @@ def run_simulation(mat: Material,
     forcing = params['forcing']
     thickness = float(params['thickness'])
 
-    # discretisation: allow override via params (fall back to DEFAULTS)
+    # note that z is flipped for plotting in the output.
     Nz = DEFAULTS['Nz']
     dz = thickness / (Nz - 1)
-    z = np.linspace(0.0, -thickness, Nz)
+    z = np.linspace(0.0, thickness, Nz)
 
     # prepare initial condition: allow overriding initial temperature via params
     T_init = float(DEFAULTS['T0'])
@@ -275,7 +275,7 @@ def run_simulation(mat: Material,
         "Ts": Ts,
         "Kstar": Kstar,
         "Kdown": Kdown,
-        "Kup": Kup,
+        "Kup": Kup,#
         "Lstar": Lstar,
         "Ldown": Ldown,
         "Lup": Lup,
@@ -283,7 +283,7 @@ def run_simulation(mat: Material,
         "H": Hflux,
         "E": Eflux,
         "L": Lstar,
-        "z": z,
+        "z": -z,                # flipped for plotting
         "T_profile": sol.y[:, -1],
         "T_profiles": T_profiles
     }

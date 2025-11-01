@@ -26,7 +26,7 @@ emissivity = 0.95        # surface emissivity (-)
 sigma = 5.670374419e-8   # Stefan-Boltzmann constant (W/m^2/K^4)
 thickness = 0.5          # layer thickness (m)
 Nz = 100                 # vertical resolution (cells)
-T0 = 293.15              # initial temperature (K)
+T0 = 293.15              # initial soil temperature (K)
 hour = 3600              # seconds in an hour (s)
 T = 24 * hour            # period (s)
 omega = 2.0 * np.pi / T  # angular frequency (rad/s)
@@ -35,7 +35,7 @@ h = 10.0                 # heat transfer coefficient (W/m2/K)
 tmax = 2 * T             # total simulation time (s)
 dt = 600.0               # solver output timestep (s)
 
-def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
+def sebrhs_ins(t, T, k, rho, cp, dz, Qgfun, h):
     """RHS implementing surface-forced heat diffusion with insulating bottom.
 
     This simplified RHS no longer computes radiative terms. Instead it expects
@@ -50,17 +50,17 @@ def sebrhs_ins(t, T, k, rho, cp, dx, Qgfun, h):
     Nz = len(T)
     dTdt = np.zeros_like(T)
     for i in range(1, Nz - 1):
-        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dx ** 2
+        dTdt[i] = kappa * (T[i - 1] - 2 * T[i] + T[i + 1]) / dz ** 2
 
     # obtain imposed net ground flux from user-supplied function
     QG = Qgfun(t)
 
     # map QG to an equivalent ghost-node value f = -QG / k
     f = -QG / k
-    dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
+    dTdt[0] = 2 * kappa / dz * ((T[1] - T[0]) / dz - f)
 
     # insulating bottom boundary
-    dTdt[-1] = -2 * kappa / dx * ((T[-1] - T[-2]) / dx)
+    dTdt[-1] = -2 * kappa / dz * ((T[-1] - T[-2]) / dz)
     return dTdt
 
 # define the prescribed net ground heat-flux function Qgfun(t)
@@ -69,6 +69,8 @@ Qgfun = lambda t: Q0 * np.sin(omega * t)
 
 # build grid
 dz = thickness / (Nz - 1)
+
+# note that z really goes from 0 (surface) to +thickness (bottom); this is flipped for plotting
 z = np.linspace(0.0, -thickness, Nz)
 
 # characteristic penetration depth and temperature
@@ -99,7 +101,7 @@ ax.set_xlim(np.min(T_profiles) - 1, np.max(T_profiles) + 1)
 ax.set_ylim(float(np.min(z)), 0.1)
 ax.set_xlabel('Temperature (°C)')
 ax.set_ylabel('Depth (m)')
-title = ax.set_title(f'Time = {times[0]:.2f} h — d_ω={d_omega:.3f} m, Θ={Theta:.3f}')
+title = ax.set_title(f'Time = {times[0]:.2f} h — $d_\omega$={d_omega:.2f} m, $\Theta$={Theta:.1f} K')
 ax.grid(True, linestyle=':', alpha=0.4)
 
 # dashed horizontal line showing the penetration depth d_omega (plotted at -d_omega)
@@ -113,7 +115,7 @@ legend = ax.legend(loc='upper right')
 def init():
     line.set_data([], [])
     marker.set_data([], [])
-    title.set_text(f'Time = {times[0]:.2f} h — d_ω={d_omega:.3f} m, Θ={Theta:.3f}')
+    title.set_text(f'Time = {times[0]:.2f} h — $d_\omega$={d_omega:.2f} m, $\Theta$={Theta:.1f} K')
     # include static artists so they are always drawn
     return line, marker, title, hline, surface_line, legend
 
@@ -123,7 +125,7 @@ def update(i):
     line.set_data(T, z)
     # set_data expects sequences; provide 1-element lists for the marker
     marker.set_data([T[0]], [0.0])
-    title.set_text(f'Time = {times[i]:.2f} h — d_ω={d_omega:.3f} m, Θ={Theta:.3f}')
+    title.set_text(f'Time = {times[0]:.2f} h — $d_\omega$={d_omega:.2f} m, $\Theta$={Theta:.1f} K')
     return line, marker, title
 
 ani = FuncAnimation(fig, update, frames=len(times), init_func=init, blit=False, interval=80)
