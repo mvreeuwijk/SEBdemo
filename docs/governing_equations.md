@@ -12,9 +12,9 @@ This document summarizes the mathematical model implemented in `model.py` (1D he
 
 The soil obeys the diffusion (heat) equation in 1D:
 
-$$ C\,\frac{\partial T}{\partial t} = \frac{\partial}{\partial z}\!\left(k\,\frac{\partial T}{\partial z}\right). $$
+$$ C\,\frac{\partial T}{\partial t} = \frac{\partial}{\partial z}\!\left(k\,\frac{\partial T}{\partial z}\right).$$
 
-where \( C = \rho c_p \) is the volumetric heat capacity (J m^{-3} K^{-1}), and \(k\) is the thermal conductivity (W m^{-1} K^{-1}). For homogeneous material with constant \(k\) and \(C\):
+where \( C = \rho c_p \) is the volumetric heat capacity (J m\(^{-3}\) K\(^{-1}\)), and \(k\) is the thermal conductivity (W m\(^{-1}\) K\(^{-1}\)). For homogeneous material with constant \(k\) and \(C\):
 
 $$
  \frac{\partial T}{\partial t} = \kappa\,\frac{\partial^2 T}{\partial z^2},\quad \kappa = \frac{k}{C}.
