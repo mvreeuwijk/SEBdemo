@@ -32,7 +32,7 @@ run_simulation outputs (dict)
 - `z`: vertical coordinates (m)
 - `T_profiles`: system temperature profiles (Nt x Nz)
 
-Quick start â€” run the demo (local)
+Quick start — run the demo (local)
 
 1. Install dependencies from the repository `requirements.txt` (recommended in a virtualenv or conda env). Example:
 
@@ -71,3 +71,4 @@ Notes & caveats
 License / attribution
 
 - See the repository `README.md` for license and author details.
+

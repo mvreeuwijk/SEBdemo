@@ -1,4 +1,4 @@
-# SEBdemo â€” Documentation
+# SEBdemo — Documentation
 
 Welcome to the SEBdemo documentation. This site is short and focused: the primary deliverable is the desktop demo application (`app.py`) which provides a friendly GUI for exploring material choices and the surface energy balance, while the underlying numerical model is available as a programmatic library (`model.py`) for scripted experiments.
 
