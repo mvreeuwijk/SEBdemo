@@ -6,10 +6,9 @@ window.MathJax = {
     tags: 'none'
   },
   options: {
-    // With pymdownx.arithmatex(generic: true), math is wrapped in elements
-    // with the class "arithmatex". Instruct MathJax to process only those.
+    // With pymdownx.arithmatex(generic: true), math is wrapped inside elements
+    // with class "arithmatex". Process only those elements.
     processHtmlClass: 'arithmatex',
-    ignoreHtmlClass: '.*',
     skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
   }
 };
