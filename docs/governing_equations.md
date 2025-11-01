@@ -12,9 +12,9 @@ This document summarizes the mathematical model implemented in `model.py` (1D he
 
 The soil obeys the diffusion (heat) equation in 1D:
 
-$$ C\,\frac{\partial T}{\partial t} = \frac{\partial}{\partial z}\!\left(k\,\frac{\partial T}{\partial z}\right).$$
+$$ C\,\frac{\partial T}{\partial t} = k\,\frac{\partial^2 T}{\partial z^2}.$$
 
-where \( C = \rho c_p \) is the volumetric heat capacity (J m\(^{-3}\) K\(^{-1}\)), and \(k\) is the thermal conductivity (W m\(^{-1}\) K\(^{-1}\)). For homogeneous material with constant \(k\) and \(C\):
+where \( C = \rho c_p \) is the volumetric heat capacity (J/m3K), and \(k\) is the thermal conductivity (W/mK). For homogeneous material with constant \(k\) and \(C\):
 
 $$
  \frac{\partial T}{\partial t} = \kappa\,\frac{\partial^2 T}{\partial z^2},\quad \kappa = \frac{k}{C}.
@@ -187,5 +187,3 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
 - Signs: Some texts use upward-positive conventions. Here, radiation and conduction are presented positive downward; sensible/latent follow \(T_s-T_a\).
 - Latent heat is enabled only for materials with `evaporation=True` in `materials.json` and via the Bowen ratio parameter `beta` supplied to `run_simulation`.
 - The surface longwave uses bulk \(T_s^4\) (gray-body assumption); atmospheric `Ldown` is provided by forcing and is not computed with a radiative transfer scheme.
-
-
