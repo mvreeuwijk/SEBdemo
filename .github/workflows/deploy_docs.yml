@@ -1,11 +1,9 @@
-﻿# Build, upload and deploy MkDocs site in a single job and avoid duplicate runs/races.
+﻿# Build and deploy MkDocs site to GitHub Pages
 on:
   push:
     branches: [ main ]
-    # Ignore changes to generated site or workflow files so automated commits don't retrigger the workflow
     paths-ignore:
       - 'site/**'
-      - '.github/workflows/**'
   workflow_dispatch:
 
 env:
@@ -18,62 +16,41 @@ permissions:
 
 jobs:
   build-and-deploy:
-    # Skip runs that were triggered by the GitHub Actions bot to avoid self-triggered duplicates
-    if: ${{ github.actor != 'github-actions[bot]' }}
-    # Prevent overlapping runs on the same branch (cancels previous runs)
-    concurrency:
-      group: pages-${{ github.ref }}
-      cancel-in-progress: true
-
     name: Build site and publish
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
-            echo "Installing from requirements.txt"
             python -m pip install -r requirements.txt
           else
-            echo "No requirements.txt found â€” installing mkdocs and a common theme"
             python -m pip install mkdocs mkdocs-material
           fi
+
       - name: Build site (MkDocs)
         id: build
         run: |
           BUILD_DIR=site
           python -m mkdocs build --strict --clean
           echo "publish_dir=${BUILD_DIR}" >> $GITHUB_OUTPUT
-        run: |
-          echo "Artifacts for this run (before upload):"
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-            | python -m json.tool || true
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
           path: ${{ steps.build.outputs.publish_dir }}
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
