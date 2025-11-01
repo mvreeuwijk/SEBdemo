@@ -11,6 +11,12 @@ edit_uri: ''  # disable 'Edit this page' links
 # Copyright
 copyright: Maarten van Reeuwijk
 
+nav:
+  - Home: index.md
+  - Governing Equations: governing_equations.md
+  - Model: model.md
+  - License: LICENSE.md
+
 theme:
   name: material
   language: en

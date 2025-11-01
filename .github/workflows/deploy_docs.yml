@@ -1,4 +1,4 @@
-# Build, upload and deploy MkDocs site in a single job and avoid duplicate runs/races.
+﻿# Build, upload and deploy MkDocs site in a single job and avoid duplicate runs/races.
 on:
   push:
     branches: [ main ]
@@ -35,18 +35,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Print run info (debug)
-        run: |
-          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
-          echo "GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
-          echo "GITHUB_RUN_ATTEMPT: $GITHUB_RUN_ATTEMPT"
-          echo "GITHUB_ACTOR: $GITHUB_ACTOR"
-          echo "GITHUB_SHA: $GITHUB_SHA"
-          if [ -n "${{ github.event.head_commit.message || '' }}" ]; then
-            echo "Commit message: ${{ github.event.head_commit.message }}"
-          fi
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -66,34 +54,15 @@ jobs:
             echo "Installing from requirements.txt"
             python -m pip install -r requirements.txt
           else
-            echo "No requirements.txt found — installing mkdocs and a common theme"
+            echo "No requirements.txt found â€” installing mkdocs and a common theme"
             python -m pip install mkdocs mkdocs-material
           fi
-
-      - name: Prepare site directory (mkdocs or docs fallback)
-        id: prepare_site
+      - name: Build site (MkDocs)
+        id: build
         run: |
-          set -e
           BUILD_DIR=site
-          if [ -f mkdocs.yml ] || [ -f mkdocs.yaml ]; then
-            echo "mkdocs config found; building site with mkdocs"
-            python -m mkdocs build --strict --clean
-          elif [ -d docs ]; then
-            echo "No mkdocs config found — copying docs/ -> site/ to publish raw markdown/html"
-            rm -rf site
-            mkdir -p site
-            cp -a docs/. site/
-          elif [ -d site ]; then
-            echo "Using existing site/ directory"
-          else
-            echo "No mkdocs config, no docs/ and no site/ directory found — aborting"
-            exit 1
-          fi
-          echo "Built/picked site directory:"
-          ls -la "${BUILD_DIR}"
+          python -m mkdocs build --strict --clean
           echo "publish_dir=${BUILD_DIR}" >> $GITHUB_OUTPUT
-
-      - name: Show artifacts list (before upload) [debug]
         run: |
           echo "Artifacts for this run (before upload):"
           curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -103,15 +72,8 @@ jobs:
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ${{ steps.prepare_site.outputs.publish_dir }}
-
-      - name: Show artifacts list (after upload) [debug]
-        run: |
-          echo "Artifacts for this run (after upload):"
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-            | python -m json.tool || true
-
+          path: ${{ steps.build.outputs.publish_dir }}
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
