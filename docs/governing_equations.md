@@ -189,3 +189,4 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
 - The surface longwave uses bulk \(T_s^4\) (gray-body assumption); atmospheric `Ldown` is provided by forcing and is not computed with a radiative transfer scheme.
 
 
+
