@@ -1,75 +1,57 @@
-# Project information
-site_name: 'SEBdemo'
-site_description: 'Documentation for the SEBdemo 1D surface energy balance model'
-site_author: 'Maarten van Reeuwijk'
-site_url: 'https://mvreeuwijk.github.io/SEBdemo/'
+site_name: SEBdemo
+site_description: Documentation for the SEBdemo 1D surface energy balance model
+site_author: Maarten van Reeuwijk
+site_url: https://mvreeuwijk.github.io/SEBdemo/
 
-# Repository
-repo_name: 'SEBdemo'
-repo_url: 'https://mvreeuwijk.github.io/SEBdemo/'
-edit_uri:  '' # disable 'Edit this page' option (https://www.mkdocs.org/user-guide/configuration/#edit_uri)
+# Repository (optional)
+repo_name: SEBdemo
+repo_url: https://github.com/mvreeuwijk/SEBdemo
+edit_uri: ''  # disable 'Edit this page' links
 
 # Copyright
-copyright: 'Maarten van Reeuwijk'
+copyright: Maarten van Reeuwijk
 
-# Configuration
 theme:
-  name: 'material'
-  language: 'en'
+  name: material
+  language: en
   palette:
-    # Project information
-    site_name: 'SEBdemo'
-    site_description: 'Documentation for the SEBdemo 1D surface energy balance model'
-    site_author: 'Maarten van Reeuwijk'
-    site_url: 'https://mvreeuwijk.github.io/SEBdemo/'
+    primary: light-blue
+    accent: pink
+  font:
+    text: Roboto
+    code: Roboto Mono
 
-    # Repository
-    repo_name: 'SEBdemo'
-    repo_url: 'https://mvreeuwijk.github.io/SEBdemo/'
-    edit_uri:  '' # disable 'Edit this page' option (https://www.mkdocs.org/user-guide/configuration/#edit_uri)
+markdown_extensions:
+  # Core/structure
+  - admonition
+  - footnotes
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
 
-    # Copyright
-    copyright: 'Maarten van Reeuwijk'
+  # Code and formatting
+  - codehilite:
+      guess_lang: false
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.mark
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.smartsymbols
+  - pymdownx.tilde
 
-    # Configuration
-    theme:
-      name: 'material'
-      language: 'en'
-      palette:
-        primary: 'light-blue'
-        accent: 'pink'
-      font:
-        text: 'Roboto'
-        code: 'Roboto Mono'
+  # Math support (works with MathJax v3 below)
+  - pymdownx.arithmatex:
+      generic: true
 
-    # Extensions
-    markdown_extensions:
-      - pymdownx.arithmatex
-      - pymdownx.betterem:
-          smart_enable: all
-      - pymdownx.caret
-      - pymdownx.critic
-      - pymdownx.details
-      - pymdownx.emoji:
-          emoji_generator: !!python/name:pymdownx.emoji.to_svg
-      - pymdownx.inlinehilite
-      - pymdownx.magiclink
-      - pymdownx.mark
-      - pymdownx.smartsymbols
-      - pymdownx.superfences
-      - pymdownx.tasklist:
-          custom_checkbox: true
-      - pymdownx.tilde
-      - codehilite:
-          guess_lang: false
-      - toc:
-          permalink: true
-      - footnotes
-      - pymdownx.mark
-      - pymdownx.details
-      - pymdownx.superfences
-      - pymdownx.tasklist
-
-    # Math rendering: use MathJax v3 (works with pymdownx.arithmatex)
-    extra_javascript:
-      - 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

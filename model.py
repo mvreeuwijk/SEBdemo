@@ -1,6 +1,20 @@
-"""Simple 1D conduction + surface energy balance model.
+"""Simple 1D conduction + surface energy balance (SEB) model.
 
-This is a compact implementation intended for demonstration and teaching.
+Overview
+--------
+This compact implementation is intended for demonstration/teaching and is
+used by the GUI in ``app2.py``. The model solves a vertically discretised
+heat conduction problem with a surface energy balance boundary condition
+and optional insulating bottom boundary.
+
+Key concepts
+------------
+- Material: thermal and radiative properties (``k``, ``rho``, ``cp``,
+  ``albedo``, ``emissivity``) and a boolean ``evaporation`` switch.
+- Forcing: time series of air temperature (Ta), shortwave (Kdown) and
+  downwelling longwave (Ldown) used to drive the SEB.
+- Solver: uses SciPy's ``solve_ivp`` with a stiff BDF method evaluated on a
+  regular ``t_eval`` grid for stable integration.
 """
 import numpy as np
 from dataclasses import dataclass
@@ -43,11 +57,19 @@ DEFAULTS = {
 }
 
 def load_material(key: str, path: str = "materials.json") -> Material:
-    """Load material definition from JSON and return a Material instance.
+    """Load a material from the repository JSON file.
 
-    This function assumes `materials.json` is correct and contains the
-    required fields. If a required field is missing, a KeyError will
-    naturally be raised by the dict access.
+    Parameters
+    ----------
+    key : str
+        Key in ``materials.json`` (e.g., ``"sandy_dry"``).
+    path : str
+        Relative path to the materials file (default ``materials.json``).
+
+    Returns
+    -------
+    Material
+        Dataclass populated with the material's properties.
     """
     base = Path(__file__).parent
     with open(base / path, "r", encoding="utf8") as f:
@@ -57,12 +79,25 @@ def load_material(key: str, path: str = "materials.json") -> Material:
 
 
 def diurnal_forcing(t, Ta_mean, Ta_amp, Sb, trise, tset):
-    """Return atmospheric temperature (K) and a simple shortwave shape S0 (W/m2).
+    """Build simple diurnal forcing (Ta and Kdown).
 
-    Ta_mean : mean air temperature in K
-    Ta_amp  : amplitude (half the peak-to-trough) in K
-    Sb      : peak shortwave (W/m2) used only for the S0 shape returned here
-    trise,tset : rise/set times in seconds used by kdown
+    Parameters
+    ----------
+    t : array-like
+        Times in seconds.
+    Ta_mean : float
+        Mean air temperature in K.
+    Ta_amp : float
+        Amplitude of air temperature variation in K.
+    Sb : float
+        Peak shortwave (W/m2) used for the shortwave shape.
+    trise, tset : float
+        Sunrise and sunset times (s) used in ``kdown``.
+
+    Returns
+    -------
+    (Ta, S0) : tuple of ndarray
+        Air temperature (K) and shortwave shape (W/m2).
     """
     # align Ta peak with shortwave peak: midpoint between trise and tset
     t = np.asarray(t)
@@ -79,11 +114,16 @@ def diurnal_forcing(t, Ta_mean, Ta_amp, Sb, trise, tset):
 
 
 def kdown(t, Sb, trise, tset):
-    """Compute incoming shortwave Kdown following the same timing logic used in SEB_diurnal.
+    """Incoming shortwave irradiance (Kdown).
 
-    t : scalar or array in seconds
-    Sb : peak shortwave (W/m2)
-    trise, tset : times in seconds
+    Parameters
+    ----------
+    t : float or array-like
+        Times in seconds.
+    Sb : float
+        Peak shortwave (W/m2).
+    trise, tset : float
+        Sunrise and sunset times (s).
     """
     # bring into 0..24h window
     t24 = np.mod(t, 24 * hour)
@@ -95,11 +135,26 @@ def kdown(t, Sb, trise, tset):
 
 
 def sebrhs_noins(t, T, mat: Material, dz, forcing, h, beta=0.0, sigma=5.670374419e-8):
-    """
-    RHS that accepts a Material instance `mat` and uses an externally
-    supplied `forcing` mapping for interpolation. The `forcing` object
-    must provide arrays for time, air temperature and shortwave (Kdown).
-    Latent heat is treated via Bowen ratio `beta` (E = Qh / beta).
+    """SEB-constrained conduction RHS (non-insulating bottom).
+
+    Parameters
+    ----------
+    t : float
+        Current time (s).
+    T : ndarray
+        Temperature profile (K).
+    mat : Material
+        Material properties.
+    dz : float
+        Grid spacing (m).
+    forcing : Mapping
+        Dict containing arrays 't', 'Ta', 'Kdown', 'Ldown'.
+    h : float
+        Heat-transfer coefficient (W/m2/K).
+    beta : float
+        Bowen ratio; if 0.0 disables latent heat.
+    sigma : float
+        Stefan–Boltzmann constant.
     """
     # material properties
     k = mat.k
@@ -139,12 +194,7 @@ def sebrhs_noins(t, T, mat: Material, dz, forcing, h, beta=0.0, sigma=5.67037441
     return dTdt
 
 def sebrhs_ins(t, T, mat: Material, dz, forcing, h, beta=0.0, sigma=5.670374419e-8):
-    """
-    RHS that accepts a Material instance `mat` and uses an externally
-    supplied `forcing` mapping for interpolation. The `forcing` object
-    must provide arrays for time, air temperature and shortwave (Kdown).
-    Latent heat is treated via Bowen ratio `beta` (E = Qh / beta).
-    """
+    """SEB-constrained conduction RHS (insulating bottom boundary). See ``sebrhs_noins`` for args."""
     # material properties
     k = mat.k
     C = mat.rho * mat.cp
@@ -189,11 +239,25 @@ def run_simulation(mat: Material,
                    dt,
                    tmax,
                    ):
-    """Run simulation using a stiff ODE solver (scipy.solve_ivp with BDF).
+    """Run a simulation and return times, fluxes and profiles.
 
-    The RHS mirrors the MATLAB `SEB_diurnal` (or `SEB_diurnal_green` when beta provided).
-    Explicit finite-difference code removed; use this ODE path for stability and parity with
-    MATLAB's stiff integrator (ode15s ~ BDF in scipy).
+    Parameters
+    ----------
+    mat : Material
+        Material properties.
+    params : Mapping
+        Requires keys: 'beta', 'forcing', 'thickness', 'h'.
+    dt : float
+        Output time step (s) used for ``t_eval`` and ``max_step``.
+    tmax : float
+        Final time (s).
+
+    Returns
+    -------
+    dict
+        Dictionary with keys: 't', 'Ta', 'Ts', 'Kstar', 'Kdown', 'Kup',
+        'Lstar', 'Ldown', 'Lup', 'G', 'H', 'E', 'L', 'z', 'T_profile',
+        'T_profiles'.
     """
 
     # require caller to provide these solver parameters; no defaults allowed
