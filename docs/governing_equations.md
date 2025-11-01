@@ -68,7 +68,7 @@ f = -QG / k
 dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
 ```
 
-Step 1 â€” start from the continuous SEB (positive downward):
+Step 1 — start from the continuous SEB (positive downward):
 
 $$ K_{\downarrow} - K_{\uparrow} + L_{\downarrow} - L_{\uparrow} - H - E - G = 0. $$
 
@@ -80,7 +80,7 @@ $$
 
 So in the code `QG` holds the net flux into the ground.
 
-Step 2 â€” relate \(G\) to the temperature gradient at the surface by Fourier's law:
+Step 2 — relate G to the temperature gradient at the surface by Fourier's law:
 
 $$
  G = -k\left.\frac{\partial T}{\partial z}\right|_{z=0},
@@ -88,7 +88,7 @@ $$
 
 where \(k\) is the thermal conductivity (W m^{-1} K^{-1}). The minus sign arises because \(z\) increases upward (\(z=0\) at the surface and \(z<0\) below) while \(G\) is positive downward.
 
-Step 3 â€” eliminate a ghost node to form a centred FD second-derivative at the surface.
+Step 3 — eliminate a ghost node to form a centred FD second-derivative at the surface.
 
 Let the vertical grid spacing be \(\Delta x\) (code: `dz`) with indices 0 (surface), 1 (first subsurface), and a ghost node at index \(-1\) to enforce the boundary. The central FD for the second derivative at node 0 is:
 
@@ -187,3 +187,5 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
 - Signs: Some texts use upward-positive conventions. Here, radiation and conduction are presented positive downward; sensible/latent follow \(T_s-T_a\).
 - Latent heat is enabled only for materials with `evaporation=True` in `materials.json` and via the Bowen ratio parameter `beta` supplied to `run_simulation`.
 - The surface longwave uses bulk \(T_s^4\) (gray-body assumption); atmospheric `Ldown` is provided by forcing and is not computed with a radiative transfer scheme.
+
+
