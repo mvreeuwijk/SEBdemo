@@ -1,4 +1,4 @@
-# Governing equations and implementation notes
+﻿# Governing equations and implementation notes
 
 This document summarizes the mathematical model implemented in `model.py` (1D heat conduction with a surface energy balance). It gives the continuous equations, boundary conditions, flux parameterisations, and how these map to the code.
 
@@ -12,11 +12,7 @@ This document summarizes the mathematical model implemented in `model.py` (1D he
 
 The soil obeys the diffusion (heat) equation in 1D:
 
-$$
- C\,\frac{\partial T}{\partial t}
- 
- = \frac{\partial}{\partial z}\!\left( k\,\frac{\partial T}{\partial z} \right),
-$$
+$$ C\,\frac{\partial T}{\partial t} = \frac{\partial}{\partial z}\!\left(k\,\frac{\partial T}{\partial z}\right). $$
 
 where \( C = \rho c_p \) is the volumetric heat capacity (J m^{-3} K^{-1}), and \(k\) is the thermal conductivity (W m^{-1} K^{-1}). For homogeneous material with constant \(k\) and \(C\):
 
@@ -41,7 +37,7 @@ where
 - \(K_{\downarrow}\): incoming shortwave (W m^{-2})
 - \(K_{\uparrow} = \alpha\,K_{\downarrow}\): reflected shortwave (albedo \(\alpha\))
 - \(L_{\downarrow}\): downwelling longwave (W m^{-2})
-- \(L_{\uparrow} = \varepsilon\,\sigma\,T_s^4\): upwelling longwave (emissivity \(\varepsilon\), Stefan–Boltzmann constant \(\sigma\))
+- \(L_{\uparrow} = \varepsilon\,\sigma\,T_s^4\): upwelling longwave (emissivity \(\varepsilon\), Stefanâ€“Boltzmann constant \(\sigma\))
 - \(H\): sensible heat flux (W m^{-2})
 - \(E\): latent heat flux (W m^{-2})
 - \(G\): conductive flux into the ground (W m^{-2}, positive downward)
@@ -72,13 +68,9 @@ f = -QG / k
 dTdt[0] = 2 * kappa / dx * ((T[1] - T[0]) / dx - f)
 ```
 
-Step 1 — start from the continuous SEB (positive downward):
+Step 1 â€” start from the continuous SEB (positive downward):
 
-$$
- K_{\downarrow} - K_{\uparrow}
- + L_{\downarrow} - L_{\uparrow}
- - H - E - G = 0.
-$$
+$$ K_{\downarrow} - K_{\uparrow} + L_{\downarrow} - L_{\uparrow} - H - E - G = 0. $$
 
 Re-arrange to isolate the conductive ground flux (positive downward):
 
@@ -88,7 +80,7 @@ $$
 
 So in the code `QG` holds the net flux into the ground.
 
-Step 2 — relate \(G\) to the temperature gradient at the surface by Fourier's law:
+Step 2 â€” relate \(G\) to the temperature gradient at the surface by Fourier's law:
 
 $$
  G = -k\left.\frac{\partial T}{\partial z}\right|_{z=0},
@@ -96,7 +88,7 @@ $$
 
 where \(k\) is the thermal conductivity (W m^{-1} K^{-1}). The minus sign arises because \(z\) increases upward (\(z=0\) at the surface and \(z<0\) below) while \(G\) is positive downward.
 
-Step 3 — eliminate a ghost node to form a centred FD second-derivative at the surface.
+Step 3 â€” eliminate a ghost node to form a centred FD second-derivative at the surface.
 
 Let the vertical grid spacing be \(\Delta x\) (code: `dz`) with indices 0 (surface), 1 (first subsurface), and a ghost node at index \(-1\) to enforce the boundary. The central FD for the second derivative at node 0 is:
 
@@ -144,7 +136,7 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
   - Net shortwave: \(K^* = K_{\downarrow} - K_{\uparrow}\).
 
 - Longwave (code):
-  - \(L_{\uparrow} = \varepsilon\,\sigma\,T_s^4\) (Stefan–Boltzmann law, emissivity \(\varepsilon\)).
+  - \(L_{\uparrow} = \varepsilon\,\sigma\,T_s^4\) (Stefanâ€“Boltzmann law, emissivity \(\varepsilon\)).
   - \(L^* = L_{\downarrow} - L_{\uparrow}\).
 
 - Sensible heat (H):
@@ -175,17 +167,17 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
 
 ## 8) How this maps to the code
 
-- `run_simulation(mat, params, dt, tmax)` — sets up grid, ICs and calls `solve_ivp`.
-- `sebrhs_ins` / `sebrhs_noins` — RHS used by the integrator; implements interior update and boundary conditions.
+- `run_simulation(mat, params, dt, tmax)` â€” sets up grid, ICs and calls `solve_ivp`.
+- `sebrhs_ins` / `sebrhs_noins` â€” RHS used by the integrator; implements interior update and boundary conditions.
 - Forcing helpers:
-  - `diurnal_forcing` — build Ta(t) and Kdown(t)
-  - `kdown` — shortwave temporal shape used by the demo
+  - `diurnal_forcing` â€” build Ta(t) and Kdown(t)
+  - `kdown` â€” shortwave temporal shape used by the demo
 - Outputs returned by `run_simulation` include:
   - `t`, `Ta`, `Ts` (surface), `Kstar`, `Kup`, `Kdown`, `Lstar`, `Lup`, `Ldown`, `G`, `H`, `E`, `z`, `T_profiles`, ...
 
 ## 9) References and further reading
 
-- [Stefan–Boltzmann law (radiative emission)](https://en.wikipedia.org/wiki/Stefan%E2%80%93Boltzmann_law)
+- [Stefanâ€“Boltzmann law (radiative emission)](https://en.wikipedia.org/wiki/Stefan%E2%80%93Boltzmann_law)
 - [Fourier's law / heat equation (conduction)](https://en.wikipedia.org/wiki/Fourier%27s_law_of_heat_conduction)
 - [Heat transfer coefficient](https://en.wikipedia.org/wiki/Heat_transfer_coefficient)
 - [Albedo](https://en.wikipedia.org/wiki/Albedo)
@@ -195,4 +187,5 @@ where \(f \equiv -\,G/k\) (and in code \(f = -Q_G/k\)). This is the expression u
 - Signs: Some texts use upward-positive conventions. Here, radiation and conduction are presented positive downward; sensible/latent follow \(T_s-T_a\).
 - Latent heat is enabled only for materials with `evaporation=True` in `materials.json` and via the Bowen ratio parameter `beta` supplied to `run_simulation`.
 - The surface longwave uses bulk \(T_s^4\) (gray-body assumption); atmospheric `Ldown` is provided by forcing and is not computed with a radiative transfer scheme.
+
 
