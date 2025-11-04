@@ -22,7 +22,7 @@ What's new (recent changes)
 - A Reset button was added to the animation controls to rewind the animation to t=0.
 - Material tooltips now display volumetric heat capacity C = rho*cp in MJ/m^3/K for clearer unit presentation.
 
-Defaults
+Defaults:
 
 - The app defaults to a 48-hour simulation length. Use the input field to change it.
 
